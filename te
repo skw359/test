@@ -215,7 +215,7 @@ export default function Login() {
         <div style={styles.loginContainer}>
           <div style={styles.gradientBorder}></div>
           <div style={styles.logoSection}>
-            <div style={styles.logo}>LOGO GOES HERE</div>
+            <div style={styles.logo}>SAFERIDE</div>
           </div>
           <div style={styles.loginSection}>
             <h2 style={styles.h2}>Welcome to Velocity.</h2>

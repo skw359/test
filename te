@@ -1,0 +1,256 @@
+import React, { useState, useRef } from 'react';
+
+export default function Login() {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const usernameRef = useRef();
+  const passwordRef = useRef();
+
+  // For loading bar and animation
+  const loadingBarRef = useRef();
+
+  const handleLogin = (e) => {
+    e.preventDefault();
+    if (loading) return;
+    setError('');
+    setLoading(true);
+
+    // Show loading bar
+    if (loadingBarRef.current) {
+      loadingBarRef.current.style.width = '77%';
+    }
+
+    // Simulate API call
+    setTimeout(() => {
+      setLoading(false);
+      setError('Authentication method not implemented yet.');
+      if (loadingBarRef.current) {
+        loadingBarRef.current.style.width = '0%';
+      }
+    }, 2000);
+  };
+
+  const handleRegisterClick = () => {
+    // Redirect to register page or show alert
+    alert('Register page would open here');
+  };
+
+  // Inline styles for demo (move to CSS or Tailwind for production)
+  const styles = {
+    body: {
+      minHeight: '100vh',
+      backgroundColor: 'black',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      fontFamily: "'Montserrat', 'Nunito', Arial, sans-serif",
+    },
+    loginContainer: {
+      position: 'relative',
+      width: 700,
+      height: 400,
+      backgroundColor: 'black',
+      display: 'flex',
+      borderRadius: 20,
+      boxShadow: '0 4px 24px 0 rgba(0,0,0,0.15)',
+      overflow: 'hidden',
+    },
+    gradientBorder: {
+      position: 'absolute',
+      inset: 0,
+      padding: '2px',
+      background: 'linear-gradient(to right, #fba83f, #ef4837)',
+      borderRadius: 20,
+      WebkitMask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
+      WebkitMaskComposite: 'xor',
+      mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
+      maskComposite: 'exclude',
+      zIndex: 0,
+      pointerEvents: 'none',
+    },
+    logoSection: {
+      width: '50%',
+      backgroundColor: 'black',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: '20px 0 0 20px',
+    },
+    loginSection: {
+      width: '50%',
+      backgroundColor: 'black',
+      padding: '40px',
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'center',
+      borderRadius: '0 20px 20px 0',
+    },
+    logo: {
+      color: '#fba83f',
+      fontWeight: 'bold',
+      fontSize: 24,
+      fontFamily: "'Montserrat', sans-serif",
+    },
+    h2: {
+      textAlign: 'center',
+      width: '100%',
+      marginBottom: 30,
+      color: 'white',
+      fontWeight: 600,
+      fontFamily: 'Montserrat, sans-serif',
+      marginTop: 0,
+    },
+    formContainer: {
+      width: '100%',
+      zIndex: 2,
+    },
+    input: {
+      width: '100%',
+      padding: 15,
+      marginBottom: 15,
+      border: '1px solid #545454',
+      borderRadius: 10,
+      backgroundColor: 'black',
+      color: 'white',
+      fontFamily: "'Montserrat', sans-serif",
+      fontWeight: 300,
+      outline: 'none',
+      transition: 'border 0.3s, box-shadow 0.3s',
+      boxSizing: 'border-box',
+    },
+    button: {
+      width: '100%',
+      padding: 15,
+      border: 'none',
+      borderRadius: 10,
+      backgroundColor: loading ? '#fba83f' : '#ff7b3d',
+      color: 'white',
+      cursor: loading ? 'default' : 'pointer',
+      fontFamily: "'Montserrat', sans-serif",
+      fontWeight: 'bold',
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'center',
+      transition: 'background-color 0.25s',
+      opacity: loading ? 0.7 : 1,
+      position: 'relative',
+      boxSizing: 'border-box',
+    },
+    error: {
+      backgroundColor: '#e02424',
+      color: 'white',
+      width: '100%',
+      textAlign: 'center',
+      padding: 10,
+      borderRadius: 10,
+      marginBottom: 10,
+      fontFamily: 'Montserrat, sans-serif',
+      display: error ? 'block' : 'none',
+    },
+    disclaimer: {
+      marginTop: 10,
+      fontSize: 12,
+      fontFamily: 'Montserrat, sans-serif',
+      fontWeight: 300,
+      color: 'white',
+    },
+    registerLink: {
+      background: 'linear-gradient(to right, #ff7b3d, #ff7b3d)',
+      WebkitBackgroundClip: 'text',
+      WebkitTextFillColor: 'transparent',
+      cursor: 'pointer',
+      transition: 'opacity 0.3s',
+      fontWeight: 'bold',
+    },
+    loadingBar: {
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      height: 3,
+      background: 'linear-gradient(to right, #fba83f, #ef4837)',
+      width: 0,
+      zIndex: 9999,
+      transition: 'width 0.3s',
+    },
+    loader: {
+      border: '3px solid rgba(255,255,255,0.3)',
+      borderTopColor: '#fff',
+      borderRadius: '50%',
+      width: 14,
+      height: 14,
+      position: 'absolute',
+      top: '50%',
+      left: '50%',
+      transform: 'translate(-50%,-50%)',
+      display: loading ? 'block' : 'none',
+      animation: 'spin 1.1s cubic-bezier(0.8, 0.45, 0.6, 0.7) infinite',
+    },
+  };
+
+  return (
+    <div style={styles.body}>
+      <div
+        ref={loadingBarRef}
+        style={styles.loadingBar}
+      />
+      <div style={{ position: 'relative', zIndex: 1 }}>
+        <div style={{ ...styles.loginContainer, zIndex: 1 }}>
+          <div style={styles.gradientBorder}></div>
+          <div style={styles.logoSection}>
+            <div style={styles.logo}>SAFERIDE</div>
+          </div>
+          <div style={styles.loginSection}>
+            <h2 style={styles.h2}>Welcome to Velocity.</h2>
+            <div style={styles.formContainer}>
+              <input
+                style={styles.input}
+                ref={usernameRef}
+                type="text"
+                name="username"
+                placeholder="Username"
+                required
+                disabled={loading}
+              />
+              <input
+                style={styles.input}
+                ref={passwordRef}
+                type="password"
+                name="password"
+                placeholder="Password"
+                required
+                disabled={loading}
+              />
+              <button 
+                type="button" 
+                style={styles.button} 
+                disabled={loading}
+                onClick={handleLogin}
+              >
+                <span>{loading ? '' : 'Login'}</span>
+                <span style={styles.loader}></span>
+              </button>
+            </div>
+            {error && (
+              <div style={styles.error}>
+                <strong>ERROR</strong>: {error}
+              </div>
+            )}
+            <p style={styles.disclaimer}>
+              Don't have an account?{' '}
+              <span style={styles.registerLink} onClick={handleRegisterClick}>
+                Register here.
+              </span>
+            </p>
+          </div>
+        </div>
+      </div>
+      {/* Keyframes for loader spinner */}
+      <style>
+        {`@keyframes spin {
+            from { transform: translate(-50%, -50%) rotate(-85deg); }
+            to { transform: translate(-50%, -50%) rotate(275deg); }
+        }`}
+      </style>
+    </div>
+  );
+}

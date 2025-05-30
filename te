@@ -275,17 +275,18 @@ export default function Login() {
           .error-text {
             flex-grow: 1;
             text-align: center;
-            padding-left: 60px; /* Add padding to account for the ERROR label */
+            padding-left: 60px;
           }
 
-          .disclaimer {
+          .register-element {
             margin-top: 10px;
-            margin-bottom: -5px;
+            margin-bottom: -17px;
             font-size: 12px;
-            text-align: left;
+            text-align: center;
             font-family: 'Montserrat', sans-serif;
             font-weight: 300;
             color: #ccc;
+            width: calc(100% - 30px); 
           }
 
           .loader {
@@ -354,7 +355,7 @@ export default function Login() {
                 </button>
               </form>
               
-              <p className="disclaimer">
+              <p className="register-element">
                 Don't have an account? Sign up.
               </p>
             </div>

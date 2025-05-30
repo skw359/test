@@ -99,6 +99,10 @@ export default function Login() {
       fontWeight: 600,
       fontFamily: 'Montserrat, sans-serif',
       marginTop: 0,
+      position: 'absolute',
+      top: 40,
+      left: '50%',
+      transform: 'translateX(-50%)',
     },
     formContainer: {
       width: '100%',
@@ -143,9 +147,12 @@ export default function Login() {
       textAlign: 'center',
       padding: 10,
       borderRadius: 10,
-      marginBottom: 10,
       fontFamily: 'Montserrat, sans-serif',
       display: error ? 'block' : 'none',
+      position: 'absolute',
+      top: -60,
+      left: 0,
+      zIndex: 10,
     },
     disclaimer: {
       marginTop: 10,
@@ -200,6 +207,11 @@ export default function Login() {
             <div style={styles.logo}>SAFERIDE</div>
           </div>
           <div style={styles.loginSection}>
+            {error && (
+              <div style={styles.error}>
+                <strong>ERROR</strong>: {error}
+              </div>
+            )}
             <h2 style={styles.h2}>Welcome to Velocity.</h2>
             <div style={styles.formContainer}>
               <input
@@ -230,11 +242,6 @@ export default function Login() {
                 <span style={styles.loader}></span>
               </button>
             </div>
-            {error && (
-              <div style={styles.error}>
-                <strong>ERROR</strong>: {error}
-              </div>
-            )}
             <p style={styles.disclaimer}>
               Don't have an account?{' '}
               <span style={styles.registerLink} onClick={handleRegisterClick}>

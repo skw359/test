@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/router';
 import Head from 'next/head';
 
 export default function Login() {
@@ -14,9 +15,9 @@ export default function Login() {
   const buttonRef = useRef(null);
   const loaderRef = useRef(null);
   const loginTextRef = useRef(null);
+  const router = useRouter();
 
   useEffect(() => {
-
     setFadeIn(true);
   }, []);
 
@@ -97,6 +98,10 @@ export default function Login() {
       }
       resetLoginButton();
     }, 2000);
+  };
+
+  const handleSignUpClick = () => {
+    router.push('/register');
   };
 
   return (
@@ -289,6 +294,17 @@ export default function Login() {
             width: calc(100% - 30px); 
           }
 
+          .sign-up-link {
+            color: #f7863c;
+            text-decoration: underline;
+            cursor: pointer;
+            transition: color 0.3s ease;
+          }
+
+          .sign-up-link:hover {
+            color: #ef4837;
+          }
+
           .loader {
             border: 2px solid rgba(255, 255, 255, 0.3);
             border-top-color: #ffffff;
@@ -356,7 +372,7 @@ export default function Login() {
               </form>
               
               <p className="register-element">
-                Don't have an account? Sign up.
+                Don't have an account? <span className="sign-up-link" onClick={handleSignUpClick}>Sign up</span>.
               </p>
             </div>
           </div>

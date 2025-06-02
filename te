@@ -11,6 +11,9 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [fadeIn, setFadeIn] = useState(false);
   const [loadingBarWidth, setLoadingBarWidth] = useState('0%');
+  const [typingText, setTypingText] = useState('');
+  const [isTypingComplete, setIsTypingComplete] = useState(false);
+  const [showCursor, setShowCursor] = useState(false);
   
   const buttonRef = useRef(null);
   const loaderRef = useRef(null);
@@ -19,7 +22,66 @@ export default function Login() {
 
   useEffect(() => {
     setFadeIn(true);
+    startTypingAnimation();
   }, []);
+
+  const startTypingAnimation = () => {
+    const text1 = "Welcome to Velocity.";
+    const text2 = "Welcome to the trusted, privacy-first platform for safely and anonymously meeting new people.";
+    
+    let currentIndex = 0;
+    
+    // Type first message
+    const typeText1 = () => {
+      if (currentIndex < text1.length) {
+        setTypingText(text1.substring(0, currentIndex + 1));
+        currentIndex++;
+        setTimeout(typeText1, 80);
+      } else {
+        // Wait 2 seconds, then start deleting "Velocity"
+        setTimeout(() => {
+          deleteVelocity();
+        }, 2000);
+      }
+    };
+    
+    // Delete "Velocity" letter by letter
+    const deleteVelocity = () => {
+      const baseText = "Welcome to ";
+      const velocityText = "Velocity.";
+      let deleteIndex = velocityText.length;
+      
+      const deleteChar = () => {
+        if (deleteIndex > 0) {
+          const remainingVelocity = velocityText.substring(0, deleteIndex - 1);
+          setTypingText(baseText + remainingVelocity);
+          deleteIndex--;
+          setTimeout(deleteChar, 60);
+        } else {
+          // Start typing the second message
+          currentIndex = baseText.length;
+          typeText2();
+        }
+      };
+      
+      deleteChar();
+    };
+    
+    // Type second message
+    const typeText2 = () => {
+      if (currentIndex < text2.length) {
+        setTypingText(text2.substring(0, currentIndex + 1));
+        currentIndex++;
+        setTimeout(typeText2, 40);
+      } else {
+        setIsTypingComplete(true);
+      }
+    };
+    
+    typeText1();
+  };
+
+  // Remove cursor blinking effect since it's not wanted
 
   const showLoader = () => {
     if (loaderRef.current && loginTextRef.current && buttonRef.current) {
@@ -137,6 +199,38 @@ export default function Login() {
             z-index: 9999;
             transition: width 0.3s ease;
             overflow: hidden;
+          }
+
+          .typing-container {
+            position: absolute;
+            top: 10%;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            max-width: 800px;
+            padding: 0 20px;
+            z-index: 10;
+          }
+
+          .typing-text {
+            font-family: 'Montserrat', sans-serif;
+            font-weight: 400;
+            font-size: 2.2rem;
+            background: linear-gradient(to right, #fba83f, #ef4837);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            line-height: 1.3;
+            min-height: 2.8rem;
+          }
+
+          .cursor {
+            display: ${showCursor ? 'inline' : 'none'};
+            background: linear-gradient(to right, #fba83f, #ef4837);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            animation: none;
           }
 
           .container {
@@ -296,7 +390,7 @@ export default function Login() {
 
           .sign-up-link {
             color: #f7863c;
-            text-decoration: underline;
+            text-decoration: none;
             cursor: pointer;
             transition: color 0.3s ease;
           }
@@ -327,9 +421,31 @@ export default function Login() {
               transform: translate(-50%, -50%) rotate(275deg);
             }
           }
+
+          @media (max-width: 900px) {
+            .typing-text {
+              font-size: 1.8rem;
+            }
+            
+            .typing-container {
+              max-width: 90%;
+            }
+          }
+
+          @media (max-width: 600px) {
+            .typing-text {
+              font-size: 1.4rem;
+            }
+          }
         `}</style>
 
         <div className="loading-bar"></div>
+        
+        <div className="typing-container">
+          <div className="typing-text">
+            {typingText}<span className="cursor">|</span>
+          </div>
+        </div>
         
         <div className="container">
           <div className="error-message">
@@ -339,8 +455,8 @@ export default function Login() {
           
           <div className="login-container">
             <div className="login-container-inner">
-              <img src="/assets/logo.png" alt="Logo" className="logo" />
-              <h2>Welcome to Velocity.</h2>
+              <img src="/logo.png" alt="Logo" className="logo" />
+              <h2>Login to Continue</h2>
               
               <form onSubmit={handleLogin}>
                 <input

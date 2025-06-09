@@ -1,22 +1,23 @@
-import { a, defineData } from '@aws-amplify/backend';
+import { a, defineData, ClientSchema } from '@aws-amplify/backend';
 
 const schema = a.schema({
   Message: a
     .model({
-      sender: a.string(),
+      owner: a.string(),   
       receiver: a.string(),
       content: a.string(),
       timestamp: a.datetime(),
     })
     .authorization((allow) => [
-      allow.owner(), // Defaults to Cognito User Pool and uses "owner" field (sender)
-      allow.owner({ provider: 'userPools', ownerField: 'receiver' }), // Specify receiver-based access
+      allow.owner(),       
     ]),
 });
+
+export type Schema = ClientSchema<typeof schema>;
 
 export const data = defineData({
   schema,
   authorizationModes: {
-    defaultAuthorizationMode: 'userPool',
+    defaultAuthorizationMode: 'userPool', // use Cognito User Pool for user-based auth
   },
 });

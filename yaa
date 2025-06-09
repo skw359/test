@@ -77,20 +77,47 @@ function ChatApp() {
 
     const fetchMessages = async () => {
       try {
-        const result = await client.graphql({
+        console.log('Fetching messages between:', currentUser, 'and', recipientUsername);
+        
+        // Fetch messages where current user is sender and recipient is receiver
+        const sentMessages = await client.graphql({
           query: listMessagesQuery,
           variables: {
+            filter: {
+              and: [
+                { owner: { eq: currentUser } },
+                { receiver: { eq: recipientUsername } }
+              ]
+            },
             limit: 100,
           }
         });
         
-        const filteredMessages = result.data.listMessages.items.filter(msg => 
-          (msg.owner === currentUser && msg.receiver === recipientUsername) ||
-          (msg.owner === recipientUsername && msg.receiver === currentUser)
-        );
+        // Fetch messages where recipient is sender and current user is receiver
+        const receivedMessages = await client.graphql({
+          query: listMessagesQuery,
+          variables: {
+            filter: {
+              and: [
+                { owner: { eq: recipientUsername } },
+                { receiver: { eq: currentUser } }
+              ]
+            },
+            limit: 100,
+          }
+        });
+
+        // Combine and sort all messages
+        const allMessages = [
+          ...sentMessages.data.listMessages.items,
+          ...receivedMessages.data.listMessages.items
+        ];
+
+        console.log('Fetched messages:', allMessages.length);
+        console.log('Sample messages:', allMessages.slice(0, 3));
         
         setMessages(
-          filteredMessages.sort((a, b) =>
+          allMessages.sort((a, b) =>
             new Date(a.timestamp) - new Date(b.timestamp)
           )
         );
@@ -107,11 +134,16 @@ function ChatApp() {
     }).subscribe({
       next: ({ data }) => {
         const newMsg = data.onCreateMessage;
+        console.log('Received new message via subscription:', newMsg);
+        
         if (
           (newMsg.owner === currentUser && newMsg.receiver === recipientUsername) ||
           (newMsg.owner === recipientUsername && newMsg.receiver === currentUser)
         ) {
+          console.log('Adding message to chat');
           setMessages(prev => [...prev, newMsg]);
+        } else {
+          console.log('Message not for this chat');
         }
       },
       error: (err) => console.error('Subscription error:', err)
@@ -120,7 +152,7 @@ function ChatApp() {
     return () => subscription.unsubscribe();
   }, [currentUser, recipientUsername]);
 
-  // auto scrollto bottom when new messages arrive
+  // auto scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -155,13 +187,16 @@ function ChatApp() {
       timestamp: new Date().toISOString(),
     };
     
+    console.log('Sending message:', msgInput);
+    
     try {
-      await client.graphql({
+      const result = await client.graphql({
         query: createMessageMutation,
         variables: {
           input: msgInput
         }
       });
+      console.log('Message sent successfully:', result);
       setMessageInput('');
     } catch (error) {
       console.error('Error sending message:', error);
@@ -172,7 +207,7 @@ function ChatApp() {
 
   return (
     <div style={{ maxWidth: 600, margin: '20px auto', padding: 20 }}>
-      {/* select thy recepient */}
+      {/* select thy recipient */}
       {!recipientUsername ? (
         <div style={{ 
           background: '#f8f9fa', 
@@ -345,7 +380,7 @@ function ChatApp() {
                 color: '#fff', 
                 border: 'none', 
                 fontWeight: 600, 
-               
+                cursor: 'pointer'
               }}
             >
               Send

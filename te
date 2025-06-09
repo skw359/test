@@ -1,11 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { Amplify, graphqlOperation } from 'aws-amplify';
-// ... GraphQL strings as above
-
-function Chat({ recipientUsername }) {
-  // ...state setup as before
-
-  useEffect(() => {
+useEffect(() => {
     Amplify.Auth.currentAuthenticatedUser().then(user => {
       setCurrentUser(user.username || user.attributes?.email);
     });
@@ -15,8 +8,9 @@ function Chat({ recipientUsername }) {
     if (!currentUser) return;
 
     const fetchMessages = async () => {
-      const result = await Amplify.API.graphql(
-        graphqlOperation(listMessagesQuery, {
+      const result = await Amplify.API.graphql({
+        query: listMessagesQuery,
+        variables: {
           filter: {
             or: [
               { and: [{ owner: { eq: currentUser } }, { receiver: { eq: recipientUsername } }] },
@@ -24,8 +18,8 @@ function Chat({ recipientUsername }) {
             ]
           },
           limit: 100,
-        })
-      );
+        }
+      });
       setMessages(
         result.data.listMessages.items.sort((a, b) =>
           new Date(a.timestamp) - new Date(b.timestamp)
@@ -35,9 +29,9 @@ function Chat({ recipientUsername }) {
 
     fetchMessages();
 
-    const subscription = Amplify.API.graphql(
-      graphqlOperation(onCreateMessageSub)
-    ).subscribe({
+    const subscription = Amplify.API.graphql({
+      query: onCreateMessageSub,
+    }).subscribe({
       next: ({ value }) => {
         const newMsg = value.data.onCreateMessage;
         if (
@@ -52,5 +46,18 @@ function Chat({ recipientUsername }) {
     return () => subscription.unsubscribe();
   }, [currentUser, recipientUsername]);
 
-  // ...rest of the component unchanged
-}
+  const sendMessage = async () => {
+    if (!input.trim() || !currentUser) return;
+    await Amplify.API.graphql({
+      query: createMessageMutation,
+      variables: {
+        input: {
+          owner: currentUser,
+          receiver: recipientUsername,
+          content: input,
+          timestamp: new Date().toISOString(),
+        }
+      }
+    });
+    setInput('');
+  };

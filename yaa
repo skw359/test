@@ -1,1 +1,25 @@
-Missing required fields: {input: 'hi', currentUser: '74886408-8031-7034-6e60-25d85148c32f', recipientUsername: undefined}
+import "@/styles/globals.css";
+import outputs from "../../amplify_outputs.json";
+import { Authenticator } from '@aws-amplify/ui-react';
+import '@aws-amplify/ui-react/styles.css';
+import { Amplify } from "aws-amplify";
+
+Amplify.configure(outputs);
+
+export default function App({ Component, pageProps }) {
+  return (
+    <Authenticator>
+      {({ signOut, user }) => (
+        <>
+          {/* Optional: Show user info or nav bar */}
+          <header style={{ padding: '1rem', borderBottom: '1px solid #ccc' }}>
+            <span>Welcome, {user?.username}</span>
+            <button onClick={signOut} style={{ marginLeft: '1rem' }}>Sign Out</button>
+          </header>
+
+          <Component {...pageProps} />
+        </>
+      )}
+    </Authenticator>
+    );
+}

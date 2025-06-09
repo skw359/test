@@ -1,6 +1,11 @@
 import styles from '../styles/chat.module.css'
 import React, { useEffect, useState, useRef } from 'react';
 import { Amplify } from 'aws-amplify';
+import { getCurrentUser } from 'aws-amplify/auth';
+import { generateClient } from 'aws-amplify/api';
+
+// Create the API client
+const client = generateClient();
 
 const createMessageMutation = /* GraphQL */ `
   mutation CreateMessage($input: CreateMessageInput!) {
@@ -53,81 +58,93 @@ function Chat({ recipientUsername }) {
   const [currentUser, setCurrentUser] = useState('');
   const messagesEndRef = useRef(null);
 
-  // Get signed-in user on mount
   useEffect(() => {
-    Amplify.Auth.getCurrentUser().then(user => {
-      setCurrentUser(
-        user.username ||
-        user.signInDetails?.loginId ||
-        user.userId
-      );
-    });
+    const fetchCurrentUser = async () => {
+      try {
+        const user = await getCurrentUser();
+        setCurrentUser(user.username || user.signInDetails?.loginId);
+      } catch (err) {
+        console.log('No authenticated user:', err);
+      }
+    };
+
+    fetchCurrentUser();
   }, []);
 
-  // Load messages and subscribe to new ones
   useEffect(() => {
     if (!currentUser) return;
 
     const fetchMessages = async () => {
-      const result = await Amplify.API.graphql({
-        query: listMessagesQuery,
-        variables: {
-          filter: {
-            or: [
-              { and: [{ owner: { eq: currentUser } }, { receiver: { eq: recipientUsername } }] },
-              { and: [{ owner: { eq: recipientUsername } }, { receiver: { eq: currentUser } }] }
-            ]
-          },
-          limit: 100,
-        }
-      });
-      setMessages(
-        result.data.listMessages.items.sort((a, b) =>
-          new Date(a.timestamp) - new Date(b.timestamp)
-        )
-      );
+      try {
+        const result = await client.graphql({
+          query: listMessagesQuery,
+          variables: {
+            filter: {
+              or: [
+                { and: [{ owner: { eq: currentUser } }, { receiver: { eq: recipientUsername } }] },
+                { and: [{ owner: { eq: recipientUsername } }, { receiver: { eq: currentUser } }] }
+              ]
+            },
+            limit: 100,
+          }
+        });
+        
+        setMessages(
+          result.data.listMessages.items.sort((a, b) =>
+            new Date(a.timestamp) - new Date(b.timestamp)
+          )
+        );
+      } catch (error) {
+        console.error('Error fetching messages:', error);
+      }
     };
 
     fetchMessages();
 
-    const subscription = Amplify.API.graphql({
+    // Set up subscription
+    const subscription = client.graphql({
       query: onCreateMessageSub,
     }).subscribe({
-      next: ({ value }) => {
-        const newMsg = value.data.onCreateMessage;
+      next: ({ data }) => {
+        const newMsg = data.onCreateMessage;
         if (
           (newMsg.owner === currentUser && newMsg.receiver === recipientUsername) ||
           (newMsg.owner === recipientUsername && newMsg.receiver === currentUser)
         ) {
           setMessages(prev => [...prev, newMsg]);
         }
-      }
+      },
+      error: (err) => console.error('Subscription error:', err)
     });
 
     return () => subscription.unsubscribe();
   }, [currentUser, recipientUsername]);
 
-  // Auto-scroll to bottom when messages update
+  const sendMessage = async () => {
+    if (!input.trim() || !currentUser) return;
+    
+    try {
+      await client.graphql({
+        query: createMessageMutation,
+        variables: {
+          input: {
+            owner: currentUser,
+            receiver: recipientUsername,
+            content: input,
+            timestamp: new Date().toISOString(),
+          }
+        }
+      });
+      setInput('');
+    } catch (error) {
+      console.error('Error sending message:', error);
+    }
+  };
+
+  // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
-
-  // Send a message
-  const sendMessage = async () => {
-    if (!input.trim() || !currentUser) return;
-    await Amplify.API.graphql({
-      query: createMessageMutation,
-      variables: {
-        input: {
-          owner: currentUser,
-          receiver: recipientUsername,
-          content: input,
-          timestamp: new Date().toISOString(),
-        }
-      }
-    });
-    setInput('');
-  };
 
   if (!currentUser) return <div>Loading user...</div>;
 

@@ -9,16 +9,14 @@ const schema = a.schema({
       timestamp: a.datetime(),
     })
     .authorization((allow) => [
-      allow.owner({ ownerField: 'sender' }),
-      allow.owner({ ownerField: 'receiver' }),
+      allow.owner(), // Defaults to Cognito User Pool and uses "owner" field (sender)
+      allow.owner({ provider: 'userPools', ownerField: 'receiver' }), // Specify receiver-based access
     ]),
 });
-
-export type Schema = ClientSchema<typeof schema>;
 
 export const data = defineData({
   schema,
   authorizationModes: {
-    defaultAuthorizationMode: 'userPool', // switch from identityPool to userPool for Cognito Auth
+    defaultAuthorizationMode: 'userPool',
   },
 });

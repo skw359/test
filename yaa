@@ -1,25 +1,360 @@
-import "@/styles/globals.css";
-import outputs from "../../amplify_outputs.json";
-import { Authenticator } from '@aws-amplify/ui-react';
-import '@aws-amplify/ui-react/styles.css';
-import { Amplify } from "aws-amplify";
+import React, { useState, useEffect, useRef } from 'react';
+import { getCurrentUser } from 'aws-amplify/auth';
+import { generateClient } from 'aws-amplify/api';
 
-Amplify.configure(outputs);
+const client = generateClient();
 
-export default function App({ Component, pageProps }) {
+const createMessageMutation = /* GraphQL */ `
+  mutation CreateMessage($input: CreateMessageInput!) {
+    createMessage(input: $input) {
+      id
+      owner
+      receiver
+      content
+      timestamp
+      createdAt
+    }
+  }
+`;
+
+const listMessagesQuery = /* GraphQL */ `
+  query ListMessages(
+    $filter: ModelMessageFilterInput
+    $limit: Int
+    $nextToken: String
+  ) {
+    listMessages(filter: $filter, limit: $limit, nextToken: $nextToken) {
+      items {
+        id
+        owner
+        receiver
+        content
+        timestamp
+        createdAt
+      }
+    }
+  }
+`;
+
+const onCreateMessageSub = /* GraphQL */ `
+  subscription OnCreateMessage {
+    onCreateMessage {
+      id
+      owner
+      receiver
+      content
+      timestamp
+      createdAt
+    }
+  }
+`;
+
+function ChatApp() {
+  const [currentUser, setCurrentUser] = useState('');
+  const [recipientUsername, setRecipientUsername] = useState('');
+  const [recipientInput, setRecipientInput] = useState('');
+  const [messages, setMessages] = useState([]);
+  const [messageInput, setMessageInput] = useState('');
+  const [recentChats, setRecentChats] = useState([]);
+  const messagesEndRef = useRef(null);
+
+  useEffect(() => {
+    const fetchCurrentUser = async () => {
+      try {
+        const user = await getCurrentUser();
+        setCurrentUser(user.username || user.signInDetails?.loginId);
+      } catch (err) {
+        console.log('No authenticated user:', err);
+      }
+    };
+
+    fetchCurrentUser();
+  }, []);
+
+  // Fetch messages when recipient changes
+  useEffect(() => {
+    if (!currentUser || !recipientUsername) return;
+
+    const fetchMessages = async () => {
+      try {
+        const result = await client.graphql({
+          query: listMessagesQuery,
+          variables: {
+            limit: 100,
+          }
+        });
+        
+        const filteredMessages = result.data.listMessages.items.filter(msg => 
+          (msg.owner === currentUser && msg.receiver === recipientUsername) ||
+          (msg.owner === recipientUsername && msg.receiver === currentUser)
+        );
+        
+        setMessages(
+          filteredMessages.sort((a, b) =>
+            new Date(a.timestamp) - new Date(b.timestamp)
+          )
+        );
+      } catch (error) {
+        console.error('Error fetching messages:', error);
+      }
+    };
+
+    fetchMessages();
+
+    // Set up subscription
+    const subscription = client.graphql({
+      query: onCreateMessageSub,
+    }).subscribe({
+      next: ({ data }) => {
+        const newMsg = data.onCreateMessage;
+        if (
+          (newMsg.owner === currentUser && newMsg.receiver === recipientUsername) ||
+          (newMsg.owner === recipientUsername && newMsg.receiver === currentUser)
+        ) {
+          setMessages(prev => [...prev, newMsg]);
+        }
+      },
+      error: (err) => console.error('Subscription error:', err)
+    });
+
+    return () => subscription.unsubscribe();
+  }, [currentUser, recipientUsername]);
+
+  // Auto-scroll to bottom when new messages arrive
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  // Update recent chats when a new chat is started
+  useEffect(() => {
+    if (recipientUsername && !recentChats.includes(recipientUsername)) {
+      setRecentChats(prev => [recipientUsername, ...prev.slice(0, 4)]); // Keep last 5 chats
+    }
+  }, [recipientUsername, recentChats]);
+
+  const startChat = () => {
+    if (!recipientInput.trim()) return;
+    setRecipientUsername(recipientInput.trim());
+    setRecipientInput('');
+  };
+
+  const sendMessage = async () => {
+    if (!messageInput.trim() || !currentUser || !recipientUsername) {
+      console.log('Missing required fields:', { 
+        messageInput: messageInput.trim(), 
+        currentUser, 
+        recipientUsername 
+      });
+      return;
+    }
+    
+    const msgInput = {
+      owner: currentUser,
+      receiver: recipientUsername,
+      content: messageInput.trim(),
+      timestamp: new Date().toISOString(),
+    };
+    
+    try {
+      await client.graphql({
+        query: createMessageMutation,
+        variables: {
+          input: msgInput
+        }
+      });
+      setMessageInput('');
+    } catch (error) {
+      console.error('Error sending message:', error);
+    }
+  };
+
+  if (!currentUser) return <div>Loading user...</div>;
+
   return (
-    <Authenticator>
-      {({ signOut, user }) => (
-        <>
-          {/* Optional: Show user info or nav bar */}
-          <header style={{ padding: '1rem', borderBottom: '1px solid #ccc' }}>
-            <span>Welcome, {user?.username}</span>
-            <button onClick={signOut} style={{ marginLeft: '1rem' }}>Sign Out</button>
-          </header>
+    <div style={{ maxWidth: 600, margin: '20px auto', padding: 20 }}>
+      {/* Recipient Selection */}
+      {!recipientUsername ? (
+        <div style={{ 
+          background: '#f8f9fa', 
+          padding: 20, 
+          borderRadius: 10, 
+          textAlign: 'center' 
+        }}>
+          <h3>Start a New Chat</h3>
+          <div style={{ marginBottom: 20 }}>
+            <input
+              type="text"
+              value={recipientInput}
+              onChange={e => setRecipientInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && startChat()}
+              placeholder="Enter username to chat with..."
+              style={{ 
+                padding: 10, 
+                fontSize: 16, 
+                borderRadius: 5, 
+                border: '1px solid #ddd', 
+                marginRight: 10,
+                width: 250
+              }}
+            />
+            <button
+              onClick={startChat}
+              style={{ 
+                padding: 10, 
+                fontSize: 16, 
+                borderRadius: 5, 
+                background: '#3466ea', 
+                color: 'white', 
+                border: 'none', 
+                cursor: 'pointer' 
+              }}
+            >
+              Start Chat
+            </button>
+          </div>
+          
+          {/* Recent Chats */}
+          {recentChats.length > 0 && (
+            <div>
+              <h4>Recent Chats</h4>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+                {recentChats.map(chat => (
+                  <button
+                    key={chat}
+                    onClick={() => setRecipientUsername(chat)}
+                    style={{ 
+                      padding: '8px 16px', 
+                      borderRadius: 20, 
+                      background: '#e9ecef', 
+                      border: 'none', 
+                      cursor: 'pointer' 
+                    }}
+                  >
+                    {chat}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        /* Chat Interface */
+        <div style={{ 
+          border: '1px solid #23263a', 
+          borderRadius: 10, 
+          background: '#191b22', 
+          color: '#fff', 
+          height: 500, 
+          display: 'flex', 
+          flexDirection: 'column' 
+        }}>
+          {/* Chat Header */}
+          <div style={{ 
+            padding: 15, 
+            borderBottom: '1px solid #23263a', 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center' 
+          }}>
+            <h3 style={{ margin: 0 }}>Chat with {recipientUsername}</h3>
+            <button
+              onClick={() => setRecipientUsername('')}
+              style={{ 
+                background: 'transparent', 
+                border: '1px solid #666', 
+                color: '#fff', 
+                borderRadius: 5, 
+                padding: '5px 10px', 
+                cursor: 'pointer' 
+              }}
+            >
+              ← Back
+            </button>
+          </div>
 
-          <Component {...pageProps} />
-        </>
+          {/* Messages */}
+          <div style={{ 
+            flex: 1, 
+            overflowY: 'auto', 
+            background: '#25273c', 
+            padding: 15, 
+            marginBottom: 0 
+          }}>
+            {messages.length === 0 ? (
+              <div style={{ textAlign: 'center', color: '#666', marginTop: 50 }}>
+                No messages yet. Start the conversation!
+              </div>
+            ) : (
+              messages.map((msg) => (
+                <div key={msg.id} style={{
+                  textAlign: msg.owner === currentUser ? 'right' : 'left',
+                  margin: '10px 0'
+                }}>
+                  <span
+                    style={{
+                      display: 'inline-block',
+                      background: msg.owner === currentUser ? '#3466ea' : '#2b2f45',
+                      color: '#fff',
+                      borderRadius: 14,
+                      padding: '8px 15px',
+                      maxWidth: 300,
+                      wordBreak: 'break-word'
+                    }}
+                  >
+                    {msg.content}
+                  </span>
+                  <div style={{ fontSize: 11, color: '#aaa', marginTop: 3 }}>
+                    {msg.owner === currentUser ? 'You' : msg.owner}
+                    &nbsp;·&nbsp;
+                    {new Date(msg.timestamp).toLocaleTimeString()}
+                  </div>
+                </div>
+              ))
+            )}
+            <div ref={messagesEndRef}></div>
+          </div>
+
+          {/* Message Input */}
+          <div style={{ 
+            display: 'flex', 
+            gap: 8, 
+            padding: 15, 
+            borderTop: '1px solid #23263a' 
+          }}>
+            <input
+              value={messageInput}
+              onChange={e => setMessageInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && sendMessage()}
+              placeholder="Type a message..."
+              style={{ 
+                flex: 1, 
+                borderRadius: 8, 
+                border: 'none', 
+                padding: 12, 
+                outline: 'none', 
+                background: '#23263a', 
+                color: '#fff' 
+              }}
+            />
+            <button
+              onClick={sendMessage}
+              style={{ 
+                padding: '0 20px', 
+                borderRadius: 8, 
+                background: '#3466ea', 
+                color: '#fff', 
+                border: 'none', 
+                fontWeight: 600, 
+                cursor: 'pointer' 
+              }}
+            >
+              Send
+            </button>
+          </div>
+        </div>
       )}
-    </Authenticator>
-    );
+    </div>
+  );
 }
+
+export default ChatApp;

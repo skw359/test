@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getCurrentUser } from 'aws-amplify/auth';
-import { generateClient } from 'aws-amplify/data';
+import { generateClient } from 'aws-amplify/api';
 
 const client = generateClient();
 
@@ -11,14 +11,19 @@ function Chat() {
   const [messages, setMessages] = useState([]);
   const [messageInput, setMessageInput] = useState('');
   const [recentChats, setRecentChats] = useState([]);
+  const [lastMessages, setLastMessages] = useState({});
   const messagesEndRef = useRef(null);
+  const [isLoading, setIsLoading] = useState(false);
+  
+  // Store subscription cleanup functions
+  const subscriptionRefs = useRef([]);
 
   // Get current authenticated user
   useEffect(() => {
     const fetchCurrentUser = async () => {
       try {
         const user = await getCurrentUser();
-        setCurrentUser(user.username || user.signInDetails?.loginId);
+        setCurrentUser(user.username || user.signInDetails?.loginId || '');
       } catch (err) {
         console.log('No authenticated user:', err);
       }
@@ -27,84 +32,154 @@ function Chat() {
     fetchCurrentUser();
   }, []);
 
-  // Fetch messages when recipient changes
+  // Fetch last message for each recent chat using Gen 2 syntax
+  const fetchLastMessage = async (chatUser) => {
+    if (!currentUser || !chatUser) return null;
+    
+    try {
+      // Get sent messages (using owner index)
+      const { data: sentMessages } = await client.models.Message.list({
+        filter: {
+          and: [
+            { owner: { eq: currentUser } },
+            { receiver: { eq: chatUser } }
+          ]
+        },
+        limit: 1,
+        sortDirection: 'DESC'
+      });
+      
+      // Get received messages (using receiver index)  
+      const { data: receivedMessages } = await client.models.Message.list({
+        filter: {
+          and: [
+            { owner: { eq: chatUser } },
+            { receiver: { eq: currentUser } }
+          ]
+        },
+        limit: 1,
+        sortDirection: 'DESC'
+      });
+
+      const allMessages = [...(sentMessages || []), ...(receivedMessages || [])];
+
+      if (allMessages.length > 0) {
+        const lastMsg = allMessages.sort((a, b) => 
+          new Date(b.timestamp || b.createdAt || 0).getTime() - 
+          new Date(a.timestamp || a.createdAt || 0).getTime()
+        )[0];
+        return lastMsg;
+      }
+      return null;
+    } catch (error) {
+      console.error('Error fetching last message:', error);
+      return null;
+    }
+  };
+
+  // Update last messages when recent chats change
+  useEffect(() => {
+    const updateLastMessages = async () => {
+      if (recentChats.length === 0 || !currentUser) return;
+      
+      const lastMsgPromises = recentChats.map(async (chat) => {
+        const lastMsg = await fetchLastMessage(chat);
+        return [chat, lastMsg];
+      });
+      
+      const results = await Promise.all(lastMsgPromises);
+      const newLastMessages = {};
+      results.forEach(([chat, msg]) => {
+        if (msg) newLastMessages[chat] = msg;
+      });
+      
+      setLastMessages(newLastMessages);
+    };
+
+    updateLastMessages();
+  }, [recentChats, currentUser]);
+
+  // Main effect for fetching and observing messages - using Gen 2 observeQuery
   useEffect(() => {
     if (!currentUser || !recipientUsername) return;
 
-    const fetchMessages = async () => {
-      try {
-        console.log('Fetching messages between:', currentUser, 'and', recipientUsername);
-        
-        // Get messages where current user is sender and recipient is receiver
-        const { data: sentMessages } = await client.models.Message.list({
-          filter: {
-            and: [
-              { owner: { eq: currentUser } },
-              { receiver: { eq: recipientUsername } }
-            ]
-          },
-          limit: 100,
-        });
-        
-        // Get messages recipient sent to current user
-        const { data: receivedMessages } = await client.models.Message.list({
-          filter: {
-            and: [
-              { owner: { eq: recipientUsername } },
-              { receiver: { eq: currentUser } }
-            ]
-          },
-          limit: 100,
-        });
+    setIsLoading(true);
+    console.log('Setting up real-time chat between:', currentUser, 'and', recipientUsername);
 
-        // Combine and sort by timestamp (most recent on bottom)
-        const allMessages = [...(sentMessages || []), ...(receivedMessages || [])];
+    // Clean up any existing subscriptions
+    subscriptionRefs.current.forEach(cleanup => cleanup());
+    subscriptionRefs.current = [];
 
-        console.log('Total messages:', allMessages.length);
-        
-        setMessages(
-          allMessages.sort((a, b) =>
-            new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-          )
-        );
-      } catch (error) {
-        console.error('Error fetching messages:', error);
+    // State to combine both sent and received messages
+    let sentMsgs = [];
+    let receivedMsgs = [];
+
+    const updateCombinedMessages = (msgs, type) => {
+      if (type === 'sent') {
+        sentMsgs = msgs;
+      } else {
+        receivedMsgs = msgs;
       }
+
+      // Combine and sort messages
+      const allMessages = [...sentMsgs, ...receivedMsgs];
+      const sortedMessages = allMessages.sort((a, b) =>
+        new Date(a.timestamp || a.createdAt || 0).getTime() - 
+        new Date(b.timestamp || b.createdAt || 0).getTime()
+      );
+
+      setMessages(sortedMessages);
+      setIsLoading(false);
     };
 
-    fetchMessages();
-
-    // Setup real-time subscription for new messages
-    const subscription = client.models.Message.observeQuery({
+    // Use observeQuery for real-time updates - this handles both initial fetch AND subscriptions
+    const sentMessagesObserver = client.models.Message.observeQuery({
       filter: {
-        or: [
-          {
-            and: [
-              { owner: { eq: currentUser } },
-              { receiver: { eq: recipientUsername } }
-            ]
-          },
-          {
-            and: [
-              { owner: { eq: recipientUsername } },
-              { receiver: { eq: currentUser } }
-            ]
-          }
+        and: [
+          { owner: { eq: currentUser } },
+          { receiver: { eq: recipientUsername } }
         ]
       }
     }).subscribe({
-      next: ({ items }) => {
-        console.log('Real-time update received');
-        setMessages(
-          items.sort((a, b) =>
-            new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-          )
-        );
+      next: ({ items: sentMessages }) => {
+        console.log('Sent messages updated:', sentMessages.length);
+        updateCombinedMessages(sentMessages, 'sent');
       },
-      error: (err) => console.error('Subscription error:', err)
+      error: (error) => {
+        console.error('Error observing sent messages:', error);
+        setIsLoading(false);
+      }
     });
 
-    return () => subscription.unsubscribe();
+    const receivedMessagesObserver = client.models.Message.observeQuery({
+      filter: {
+        and: [
+          { owner: { eq: recipientUsername } },
+          { receiver: { eq: currentUser } }
+        ]
+      }
+    }).subscribe({
+      next: ({ items: receivedMessages }) => {
+        console.log('Received messages updated:', receivedMessages.length);
+        updateCombinedMessages(receivedMessages, 'received');
+      },
+      error: (error) => {
+        console.error('Error observing received messages:', error);
+        setIsLoading(false);
+      }
+    });
+
+    // Store cleanup functions
+    subscriptionRefs.current.push(
+      () => sentMessagesObserver.unsubscribe(),
+      () => receivedMessagesObserver.unsubscribe()
+    );
+
+    // Cleanup function
+    return () => {
+      subscriptionRefs.current.forEach(cleanup => cleanup());
+      subscriptionRefs.current = [];
+    };
   }, [currentUser, recipientUsername]);
 
   // Auto scroll to bottom when new messages arrive
@@ -115,7 +190,7 @@ function Chat() {
   // Add new recipient to recent chats
   useEffect(() => {
     if (recipientUsername && !recentChats.includes(recipientUsername)) {
-      setRecentChats(prev => [recipientUsername, ...prev.slice(0, 4)]); 
+      setRecentChats(prev => [recipientUsername, ...prev.slice(0, 9)]); // Keep last 10 chats
     }
   }, [recipientUsername, recentChats]);
 
@@ -126,6 +201,7 @@ function Chat() {
     setRecipientInput('');
   };
 
+  // Send message using Gen 2 syntax
   const sendMessage = async () => {
     if (!messageInput.trim() || !currentUser || !recipientUsername) {
       console.log('Missing required fields:', { 
@@ -136,207 +212,442 @@ function Chat() {
       return;
     }
     
-    const msgInput = {
+    const messageData = {
       owner: currentUser,
       receiver: recipientUsername,
       content: messageInput.trim(),
       timestamp: new Date().toISOString(),
     };
     
-    console.log('Sending message:', msgInput);
+    console.log('Sending message:', messageData);
     
     try {
-      const { data: newMessage, errors } = await client.models.Message.create(msgInput);
+      const { data: newMessage, errors } = await client.models.Message.create(messageData);
       
       if (errors) {
-        console.error('Errors creating message:', errors);
+        console.error('Error sending message:', errors);
         return;
       }
       
       console.log('Message sent successfully:', newMessage);
       setMessageInput('');
+      
+      // Update last messages for recent chats
+      if (newMessage) {
+        setLastMessages(prev => ({
+          ...prev,
+          [recipientUsername]: newMessage
+        }));
+      }
     } catch (error) {
       console.error('Error sending message:', error);
     }
   };
 
+  const formatTime = (timestamp) => {
+    if (!timestamp) return '';
+    
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffMins < 1) return 'now';
+    if (diffMins < 60) return `${diffMins}m`;
+    if (diffHours < 24) return `${diffHours}h`;
+    if (diffDays < 7) return `${diffDays}d`;
+    return date.toLocaleDateString();
+  };
+
+  const getInitials = (name) => {
+    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+  };
+
   if (!currentUser) return <div>Loading user...</div>;
 
   return (
-    <div style={{ maxWidth: 600, margin: '20px auto', padding: 20 }}>
-      {/* Select recipient (the selection screen) */}
-      {!recipientUsername ? (
+    <div style={{ 
+      display: 'flex', 
+      height: '100vh', 
+      backgroundColor: '#1a1d29',
+      color: '#fff',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+    }}>
+      {/* Left Sidebar - Recent Chats */}
+      <div style={{ 
+        width: '350px', 
+        backgroundColor: '#1a1d29',
+        borderRight: '1px solid #2d3748',
+        display: 'flex',
+        flexDirection: 'column'
+      }}>
+        {/* Header */}
         <div style={{ 
-          padding: 20, 
-          borderRadius: 10, 
-          textAlign: 'center' 
+          padding: '20px', 
+          borderBottom: '1px solid #2d3748'
         }}>
-          <h3>Start New Chat</h3>
-          <div style={{ marginBottom: 20 }}>
+          <h2 style={{ 
+            margin: 0, 
+            fontSize: '18px', 
+            fontWeight: '600',
+            marginBottom: '16px'
+          }}>
+            Chats
+          </h2>
+          
+          {/* New Chat Input */}
+          <div style={{ display: 'flex', gap: '8px' }}>
             <input
               type="text"
               value={recipientInput}
               onChange={e => setRecipientInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && startChat()}
-              placeholder="Enter username to chat with..."
+              placeholder="Start new chat..."
               style={{ 
-                marginRight: 10,
-                padding: 10,
-                fontSize: 16,
-                borderRadius: 5,
-                border: '1px solid #ccc'
+                flex: 1,
+                padding: '8px 12px',
+                backgroundColor: '#2d3748',
+                border: '1px solid #4a5568',
+                borderRadius: '6px',
+                color: '#fff',
+                fontSize: '14px'
               }}
             />
             <button
               onClick={startChat}
               style={{ 
-                padding: 10, 
-                fontSize: 16,
-                borderRadius: 5,
-                backgroundColor: '#007bff',
-                color: 'white',
+                padding: '8px 12px',
+                backgroundColor: '#667eea',
                 border: 'none',
+                borderRadius: '6px',
+                color: '#fff',
+                fontSize: '14px',
                 cursor: 'pointer'
               }}
             >
-              Start Chat
+              +
             </button>
           </div>
-          
-          {/* Recent Chats */}
-          {recentChats.length > 0 && (
-            <div>
-              <h4>Recent Chats</h4>
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
-                {recentChats.map(chat => (
-                  <button
-                    key={chat}
-                    onClick={() => setRecipientUsername(chat)}
-                    style={{ 
-                      padding: '8px 16px',
-                      borderRadius: 5,
-                      backgroundColor: '#f8f9fa',
-                      border: '1px solid #dee2e6',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    {chat}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
-      ) : (
-        /* Chat Interface */
-        <div style={{ 
-          border: '1px solid #dee2e6',
-          borderRadius: '10px',
-          overflow: 'hidden'
-        }}>
-          {/* Chat Header */}
-          <div style={{ 
-            padding: 15, 
-            backgroundColor: '#f8f9fa',
-            borderBottom: '1px solid #dee2e6',
-            display: 'flex', 
-            justifyContent: 'space-between', 
-            alignItems: 'center' 
-          }}>
-            <h3 style={{ margin: 0 }}>Chat with {recipientUsername}</h3>
-            <button
-              onClick={() => setRecipientUsername('')}
-              style={{ 
-                padding: '5px 10px',
-                borderRadius: 5,
-                backgroundColor: '#6c757d',
-                color: 'white',
-                border: 'none',
-                cursor: 'pointer'
-              }}
-            >
-              Back
-            </button>
-          </div>
 
-          {/* Messages */}
-          <div style={{ 
-            height: 400,
-            overflowY: 'auto',
-            padding: 15,
-            backgroundColor: '#fff'
-          }}>
-            {messages.length === 0 ? (
-              <div style={{ textAlign: 'center', color: '#666', marginTop: 50 }}>
-                No messages yet. Start the conversation!
-              </div>
-            ) : (
-              messages.map((msg) => (
-                <div key={msg.id} style={{
-                  textAlign: msg.owner === currentUser ? 'right' : 'left',
-                  margin: '10px 0'
-                }}>
-                  <span
-                    style={{
-                      display: 'inline-block',
-                      padding: '8px 12px',
-                      maxWidth: '70%',
-                      backgroundColor: msg.owner === currentUser ? '#007bff' : '#e9ecef',
-                      color: msg.owner === currentUser ? 'white' : 'black',
-                      borderRadius: '18px',
-                      wordWrap: 'break-word'
-                    }}
-                  >
-                    {msg.content}
-                  </span>
-                  <div style={{ fontSize: 11, color: '#6c757d', marginTop: 3 }}>
-                    {msg.owner === currentUser ? 'You' : msg.owner}
-                    &nbsp;·&nbsp;
-                    {new Date(msg.timestamp).toLocaleTimeString()}
+        {/* Chat List */}
+        <div style={{ 
+          flex: 1, 
+          overflowY: 'auto'
+        }}>
+          {recentChats.length === 0 ? (
+            <div style={{ 
+              padding: '40px 20px', 
+              textAlign: 'center', 
+              color: '#718096' 
+            }}>
+              No recent chats
+            </div>
+          ) : (
+            recentChats.map(chat => {
+              const lastMsg = lastMessages[chat];
+              const isActive = chat === recipientUsername;
+              
+              return (
+                <div
+                  key={chat}
+                  onClick={() => setRecipientUsername(chat)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '12px 20px',
+                    cursor: 'pointer',
+                    backgroundColor: isActive ? '#2d3748' : 'transparent',
+                    borderLeft: isActive ? '3px solid #667eea' : '3px solid transparent',
+                  }}
+                  onMouseEnter={e => {
+                    if (!isActive) e.currentTarget.style.backgroundColor = '#2a2d3a';
+                  }}
+                  onMouseLeave={e => {
+                    if (!isActive) e.currentTarget.style.backgroundColor = 'transparent';
+                  }}
+                >
+                  {/* Avatar */}
+                  <div style={{
+                    width: '40px',
+                    height: '40px',
+                    borderRadius: '50%',
+                    backgroundColor: '#667eea',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginRight: '12px',
+                    fontSize: '14px',
+                    fontWeight: '600'
+                  }}>
+                    {getInitials(chat)}
+                  </div>
+                  
+                  {/* Chat Info */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ 
+                      display: 'flex', 
+                      justifyContent: 'space-between', 
+                      alignItems: 'center',
+                      marginBottom: '4px'
+                    }}>
+                      <span style={{
+                        fontSize: '15px',
+                        fontWeight: '500',
+                        color: '#fff'
+                      }}>
+                        {chat}
+                      </span>
+                      {lastMsg && (
+                        <span style={{
+                          fontSize: '12px',
+                          color: '#718096'
+                        }}>
+                          {formatTime(lastMsg.timestamp)}
+                        </span>
+                      )}
+                    </div>
+                    {lastMsg && (
+                      <div style={{
+                        fontSize: '13px',
+                        color: '#718096',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                      }}>
+                        {lastMsg.owner === currentUser ? 'You: ' : ''}
+                        {lastMsg.content}
+                      </div>
+                    )}
                   </div>
                 </div>
-              ))
-            )}
-            <div ref={messagesEndRef}></div>
-          </div>
-
-          {/* Message input */}
-          <div style={{ 
-            display: 'flex', 
-            gap: 8, 
-            padding: 15,
-            backgroundColor: '#f8f9fa',
-            borderTop: '1px solid #dee2e6'
-          }}>
-            <input
-              value={messageInput}
-              onChange={e => setMessageInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && sendMessage()}
-              placeholder="Type a message..."
-              style={{ 
-                flex: 1,
-                padding: 10,
-                borderRadius: 20,
-                border: '1px solid #ced4da',
-                outline: 'none'
-              }}
-            />
-            <button
-              onClick={sendMessage}
-              style={{ 
-                padding: '10px 20px',
-                borderRadius: 20,
-                backgroundColor: '#007bff',
-                color: 'white',
-                border: 'none',
-                cursor: 'pointer'
-              }}
-            >
-              Send
-            </button>
-          </div>
+              );
+            })
+          )}
         </div>
-      )}
+      </div>
+
+      {/* Right Side - Chat Interface */}
+      <div style={{ 
+        flex: 1, 
+        display: 'flex', 
+        flexDirection: 'column',
+        backgroundColor: '#0f1419'
+      }}>
+        {!recipientUsername ? (
+          /* Welcome Screen */
+          <div style={{
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexDirection: 'column',
+            color: '#718096'
+          }}>
+            <div style={{
+              fontSize: '48px',
+              marginBottom: '16px'
+            }}>💬</div>
+            <h3 style={{ 
+              margin: 0, 
+              fontSize: '24px', 
+              fontWeight: '600',
+              marginBottom: '8px',
+              color: '#fff'
+            }}>
+              Welcome to Messaging
+            </h3>
+            <p style={{ 
+              margin: 0, 
+              fontSize: '16px',
+              textAlign: 'center'
+            }}>
+              Select a chat from the sidebar or start a new conversation
+            </p>
+          </div>
+        ) : (
+          /* Active Chat */
+          <>
+            {/* Chat Header */}
+            <div style={{ 
+              padding: '16px 24px', 
+              backgroundColor: '#1a1d29',
+              borderBottom: '1px solid #2d3748',
+              display: 'flex', 
+              alignItems: 'center',
+              gap: '12px'
+            }}>
+              <div style={{
+                width: '36px',
+                height: '36px',
+                borderRadius: '50%',
+                backgroundColor: '#667eea',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '14px',
+                fontWeight: '600'
+              }}>
+                {getInitials(recipientUsername)}
+              </div>
+              <div>
+                <h3 style={{ 
+                  margin: 0, 
+                  fontSize: '16px', 
+                  fontWeight: '600',
+                  color: '#fff'
+                }}>
+                  {recipientUsername}
+                </h3>
+                <div style={{
+                  fontSize: '12px',
+                  color: '#718096'
+                }}>
+                  {isLoading ? 'Loading...' : 'Online'}
+                </div>
+              </div>
+            </div>
+
+            {/* Messages */}
+            <div style={{ 
+              flex: 1, 
+              padding: '16px 24px', 
+              overflowY: 'auto',
+              display: 'flex',
+              flexDirection: 'column'
+            }}>
+              {isLoading ? (
+                <div style={{ 
+                  textAlign: 'center', 
+                  color: '#718096', 
+                  marginTop: '50px',
+                  fontSize: '14px'
+                }}>
+                  Loading messages...
+                </div>
+              ) : messages.length === 0 ? (
+                <div style={{ 
+                  textAlign: 'center', 
+                  color: '#718096', 
+                  marginTop: '50px',
+                  fontSize: '14px'
+                }}>
+                  No messages yet. Start the conversation!
+                </div>
+              ) : (
+                messages.map((msg) => (
+                  <div 
+                    key={msg.id} 
+                    style={{
+                      display: 'flex',
+                      justifyContent: msg.owner === currentUser ? 'flex-end' : 'flex-start',
+                      marginBottom: '12px'
+                    }}
+                  >
+                    <div style={{
+                      maxWidth: '70%',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: msg.owner === currentUser ? 'flex-end' : 'flex-start'
+                    }}>
+                      <div
+                        style={{
+                          padding: '12px 16px',
+                          backgroundColor: msg.owner === currentUser ? '#667eea' : '#2d3748',
+                          borderRadius: '18px',
+                          borderBottomRightRadius: msg.owner === currentUser ? '4px' : '18px',
+                          borderBottomLeftRadius: msg.owner === currentUser ? '18px' : '4px',
+                          color: '#fff',
+                          fontSize: '14px',
+                          lineHeight: '1.4',
+                          wordWrap: 'break-word'
+                        }}
+                      >
+                        {msg.content}
+                      </div>
+                      <div style={{ 
+                        fontSize: '11px', 
+                        color: '#718096', 
+                        marginTop: '4px',
+                        marginLeft: msg.owner === currentUser ? '0' : '12px',
+                        marginRight: msg.owner === currentUser ? '12px' : '0'
+                      }}>
+                        {new Date(msg.timestamp || msg.createdAt || '').toLocaleTimeString([], {
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+              <div ref={messagesEndRef}></div>
+            </div>
+
+            {/* Message Input */}
+            <div style={{ 
+              padding: '16px 24px',
+              backgroundColor: '#1a1d29',
+              borderTop: '1px solid #2d3748'
+            }}>
+              <div style={{ 
+                display: 'flex', 
+                gap: '12px',
+                alignItems: 'flex-end'
+              }}>
+                <input
+                  value={messageInput}
+                  onChange={e => setMessageInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendMessage()}
+                  placeholder="Type a message..."
+                  disabled={isLoading}
+                  style={{ 
+                    flex: 1,
+                    padding: '12px 16px',
+                    backgroundColor: '#2d3748',
+                    border: '1px solid #4a5568',
+                    borderRadius: '20px',
+                    color: '#fff',
+                    fontSize: '14px',
+                    resize: 'none',
+                    outline: 'none',
+                    opacity: isLoading ? 0.6 : 1
+                  }}
+                />
+                <button
+                  onClick={sendMessage}
+                  disabled={isLoading || !messageInput.trim()}
+                  style={{ 
+                    padding: '12px 20px',
+                    backgroundColor: (isLoading || !messageInput.trim()) ? '#4a5568' : '#667eea',
+                    border: 'none',
+                    borderRadius: '20px',
+                    color: '#fff',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    cursor: (isLoading || !messageInput.trim()) ? 'not-allowed' : 'pointer',
+                    opacity: (isLoading || !messageInput.trim()) ? 0.6 : 1
+                  }}
+                  onMouseEnter={e => {
+                    if (!isLoading && messageInput.trim()) {
+                      e.currentTarget.style.backgroundColor = '#5a67d8';
+                    }
+                  }}
+                  onMouseLeave={e => {
+                    if (!isLoading && messageInput.trim()) {
+                      e.currentTarget.style.backgroundColor = '#667eea';
+                    }
+                  }}
+                >
+                  Send
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }

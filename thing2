@@ -1,0 +1,344 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { getCurrentUser } from 'aws-amplify/auth';
+import { generateClient } from 'aws-amplify/data';
+
+const client = generateClient();
+
+function Chat() {
+  const [currentUser, setCurrentUser] = useState('');
+  const [recipientUsername, setRecipientUsername] = useState('');
+  const [recipientInput, setRecipientInput] = useState('');
+  const [messages, setMessages] = useState([]);
+  const [messageInput, setMessageInput] = useState('');
+  const [recentChats, setRecentChats] = useState([]);
+  const messagesEndRef = useRef(null);
+
+  // Get current authenticated user
+  useEffect(() => {
+    const fetchCurrentUser = async () => {
+      try {
+        const user = await getCurrentUser();
+        setCurrentUser(user.username || user.signInDetails?.loginId);
+      } catch (err) {
+        console.log('No authenticated user:', err);
+      }
+    };
+
+    fetchCurrentUser();
+  }, []);
+
+  // Fetch messages when recipient changes
+  useEffect(() => {
+    if (!currentUser || !recipientUsername) return;
+
+    const fetchMessages = async () => {
+      try {
+        console.log('Fetching messages between:', currentUser, 'and', recipientUsername);
+        
+        // Get messages where current user is sender and recipient is receiver
+        const { data: sentMessages } = await client.models.Message.list({
+          filter: {
+            and: [
+              { owner: { eq: currentUser } },
+              { receiver: { eq: recipientUsername } }
+            ]
+          },
+          limit: 100,
+        });
+        
+        // Get messages recipient sent to current user
+        const { data: receivedMessages } = await client.models.Message.list({
+          filter: {
+            and: [
+              { owner: { eq: recipientUsername } },
+              { receiver: { eq: currentUser } }
+            ]
+          },
+          limit: 100,
+        });
+
+        // Combine and sort by timestamp (most recent on bottom)
+        const allMessages = [...(sentMessages || []), ...(receivedMessages || [])];
+
+        console.log('Total messages:', allMessages.length);
+        
+        setMessages(
+          allMessages.sort((a, b) =>
+            new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+          )
+        );
+      } catch (error) {
+        console.error('Error fetching messages:', error);
+      }
+    };
+
+    fetchMessages();
+
+    // Setup real-time subscription for new messages
+    const subscription = client.models.Message.observeQuery({
+      filter: {
+        or: [
+          {
+            and: [
+              { owner: { eq: currentUser } },
+              { receiver: { eq: recipientUsername } }
+            ]
+          },
+          {
+            and: [
+              { owner: { eq: recipientUsername } },
+              { receiver: { eq: currentUser } }
+            ]
+          }
+        ]
+      }
+    }).subscribe({
+      next: ({ items }) => {
+        console.log('Real-time update received');
+        setMessages(
+          items.sort((a, b) =>
+            new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+          )
+        );
+      },
+      error: (err) => console.error('Subscription error:', err)
+    });
+
+    return () => subscription.unsubscribe();
+  }, [currentUser, recipientUsername]);
+
+  // Auto scroll to bottom when new messages arrive
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  // Add new recipient to recent chats
+  useEffect(() => {
+    if (recipientUsername && !recentChats.includes(recipientUsername)) {
+      setRecentChats(prev => [recipientUsername, ...prev.slice(0, 4)]); 
+    }
+  }, [recipientUsername, recentChats]);
+
+  // Start a new chat with a new user from the input field
+  const startChat = () => {
+    if (!recipientInput.trim()) return;
+    setRecipientUsername(recipientInput.trim());
+    setRecipientInput('');
+  };
+
+  const sendMessage = async () => {
+    if (!messageInput.trim() || !currentUser || !recipientUsername) {
+      console.log('Missing required fields:', { 
+        messageInput: messageInput.trim(), 
+        currentUser, 
+        recipientUsername 
+      });
+      return;
+    }
+    
+    const msgInput = {
+      owner: currentUser,
+      receiver: recipientUsername,
+      content: messageInput.trim(),
+      timestamp: new Date().toISOString(),
+    };
+    
+    console.log('Sending message:', msgInput);
+    
+    try {
+      const { data: newMessage, errors } = await client.models.Message.create(msgInput);
+      
+      if (errors) {
+        console.error('Errors creating message:', errors);
+        return;
+      }
+      
+      console.log('Message sent successfully:', newMessage);
+      setMessageInput('');
+    } catch (error) {
+      console.error('Error sending message:', error);
+    }
+  };
+
+  if (!currentUser) return <div>Loading user...</div>;
+
+  return (
+    <div style={{ maxWidth: 600, margin: '20px auto', padding: 20 }}>
+      {/* Select recipient (the selection screen) */}
+      {!recipientUsername ? (
+        <div style={{ 
+          padding: 20, 
+          borderRadius: 10, 
+          textAlign: 'center' 
+        }}>
+          <h3>Start New Chat</h3>
+          <div style={{ marginBottom: 20 }}>
+            <input
+              type="text"
+              value={recipientInput}
+              onChange={e => setRecipientInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && startChat()}
+              placeholder="Enter username to chat with..."
+              style={{ 
+                marginRight: 10,
+                padding: 10,
+                fontSize: 16,
+                borderRadius: 5,
+                border: '1px solid #ccc'
+              }}
+            />
+            <button
+              onClick={startChat}
+              style={{ 
+                padding: 10, 
+                fontSize: 16,
+                borderRadius: 5,
+                backgroundColor: '#007bff',
+                color: 'white',
+                border: 'none',
+                cursor: 'pointer'
+              }}
+            >
+              Start Chat
+            </button>
+          </div>
+          
+          {/* Recent Chats */}
+          {recentChats.length > 0 && (
+            <div>
+              <h4>Recent Chats</h4>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+                {recentChats.map(chat => (
+                  <button
+                    key={chat}
+                    onClick={() => setRecipientUsername(chat)}
+                    style={{ 
+                      padding: '8px 16px',
+                      borderRadius: 5,
+                      backgroundColor: '#f8f9fa',
+                      border: '1px solid #dee2e6',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {chat}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        /* Chat Interface */
+        <div style={{ 
+          border: '1px solid #dee2e6',
+          borderRadius: '10px',
+          overflow: 'hidden'
+        }}>
+          {/* Chat Header */}
+          <div style={{ 
+            padding: 15, 
+            backgroundColor: '#f8f9fa',
+            borderBottom: '1px solid #dee2e6',
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center' 
+          }}>
+            <h3 style={{ margin: 0 }}>Chat with {recipientUsername}</h3>
+            <button
+              onClick={() => setRecipientUsername('')}
+              style={{ 
+                padding: '5px 10px',
+                borderRadius: 5,
+                backgroundColor: '#6c757d',
+                color: 'white',
+                border: 'none',
+                cursor: 'pointer'
+              }}
+            >
+              Back
+            </button>
+          </div>
+
+          {/* Messages */}
+          <div style={{ 
+            height: 400,
+            overflowY: 'auto',
+            padding: 15,
+            backgroundColor: '#fff'
+          }}>
+            {messages.length === 0 ? (
+              <div style={{ textAlign: 'center', color: '#666', marginTop: 50 }}>
+                No messages yet. Start the conversation!
+              </div>
+            ) : (
+              messages.map((msg) => (
+                <div key={msg.id} style={{
+                  textAlign: msg.owner === currentUser ? 'right' : 'left',
+                  margin: '10px 0'
+                }}>
+                  <span
+                    style={{
+                      display: 'inline-block',
+                      padding: '8px 12px',
+                      maxWidth: '70%',
+                      backgroundColor: msg.owner === currentUser ? '#007bff' : '#e9ecef',
+                      color: msg.owner === currentUser ? 'white' : 'black',
+                      borderRadius: '18px',
+                      wordWrap: 'break-word'
+                    }}
+                  >
+                    {msg.content}
+                  </span>
+                  <div style={{ fontSize: 11, color: '#6c757d', marginTop: 3 }}>
+                    {msg.owner === currentUser ? 'You' : msg.owner}
+                    &nbsp;·&nbsp;
+                    {new Date(msg.timestamp).toLocaleTimeString()}
+                  </div>
+                </div>
+              ))
+            )}
+            <div ref={messagesEndRef}></div>
+          </div>
+
+          {/* Message input */}
+          <div style={{ 
+            display: 'flex', 
+            gap: 8, 
+            padding: 15,
+            backgroundColor: '#f8f9fa',
+            borderTop: '1px solid #dee2e6'
+          }}>
+            <input
+              value={messageInput}
+              onChange={e => setMessageInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && sendMessage()}
+              placeholder="Type a message..."
+              style={{ 
+                flex: 1,
+                padding: 10,
+                borderRadius: 20,
+                border: '1px solid #ced4da',
+                outline: 'none'
+              }}
+            />
+            <button
+              onClick={sendMessage}
+              style={{ 
+                padding: '10px 20px',
+                borderRadius: 20,
+                backgroundColor: '#007bff',
+                color: 'white',
+                border: 'none',
+                cursor: 'pointer'
+              }}
+            >
+              Send
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default Chat;

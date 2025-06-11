@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getCurrentUser } from 'aws-amplify/auth';
 import { generateClient } from 'aws-amplify/api';
+import { idText } from 'typescript';  
 
 const client = generateClient();
 
-const createMessageMutation = /* GraphQL */ `
+//when u msg someone
+const createMessageMutation =  `
   mutation CreateMessage($input: CreateMessageInput!) {
     createMessage(input: $input) {
       id
@@ -17,7 +19,8 @@ const createMessageMutation = /* GraphQL */ `
   }
 `;
 
-const listMessagesQuery = /* GraphQL */ `
+//get msgs
+const listMessages =  `
   query ListMessages(
     $filter: ModelMessageFilterInput
     $limit: Int
@@ -36,7 +39,8 @@ const listMessagesQuery = /* GraphQL */ `
   }
 `;
 
-const onCreateMessageSub = /* GraphQL */ `
+//listen to database when new msgs come
+const onCreateMessageSub =  `
   subscription OnCreateMessage {
     onCreateMessage {
       id
@@ -49,7 +53,8 @@ const onCreateMessageSub = /* GraphQL */ `
   }
 `;
 
-function ChatApp() {
+//get the logged in user, who we're chatting with, all chat msgs, text input field for new msg, input field for selecting recipient, list of recent chats, and then scorll to the bottom on new msgs
+function Chat() {
   const [currentUser, setCurrentUser] = useState('');
   const [recipientUsername, setRecipientUsername] = useState('');
   const [recipientInput, setRecipientInput] = useState('');
@@ -58,6 +63,7 @@ function ChatApp() {
   const [recentChats, setRecentChats] = useState([]);
   const messagesEndRef = useRef(null);
 
+  //get current authenticated user
   useEffect(() => {
     const fetchCurrentUser = async () => {
       try {
@@ -71,7 +77,7 @@ function ChatApp() {
     fetchCurrentUser();
   }, []);
 
-  // get messages when recipient changes
+  // now i wanna get msgs when recipient changes (so say if u switched cahts)
   useEffect(() => {
     if (!currentUser || !recipientUsername) return;
 
@@ -79,9 +85,9 @@ function ChatApp() {
       try {
         console.log('Fetching messages between:', currentUser, 'and', recipientUsername);
         
-        // Fetch messages where current user is sender and recipient is receiver
+        // get messages where current user is sender and recipient is receiver
         const sentMessages = await client.graphql({
-          query: listMessagesQuery,
+          query: listMessages,
           variables: {
             filter: {
               and: [
@@ -93,9 +99,9 @@ function ChatApp() {
           }
         });
         
-        // Fetch messages where recipient is sender and current user is receiver
+       //get messages recipient sent to current user
         const receivedMessages = await client.graphql({
-          query: listMessagesQuery,
+          query: listMessages,
           variables: {
             filter: {
               and: [
@@ -107,14 +113,10 @@ function ChatApp() {
           }
         });
 
-        // Combine and sort all messages
-        const allMessages = [
-          ...sentMessages.data.listMessages.items,
-          ...receivedMessages.data.listMessages.items
-        ];
+        //combine and sort by timestamp (most recent on bottom)
+        const allMessages = [ ...sentMessages.data.listMessages.items, ...receivedMessages.data.listMessages.items ];
 
-        console.log('Fetched messages:', allMessages.length);
-        console.log('Sample messages:', allMessages.slice(0, 3));
+        console.log(' messages:', allMessages.length);
         
         setMessages(
           allMessages.sort((a, b) =>
@@ -122,13 +124,13 @@ function ChatApp() {
           )
         );
       } catch (error) {
-        console.error('Error fetching messages:', error);
+        console.error(error);
       }
     };
 
     fetchMessages();
 
-    // set up subscription
+     //ok now this is to setup the subscription and update if they're relevant
     const subscription = client.graphql({
       query: onCreateMessageSub,
     }).subscribe({
@@ -157,13 +159,14 @@ function ChatApp() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Update recent chats when a new chat is started
+  // add new recipient to recent chats
   useEffect(() => {
     if (recipientUsername && !recentChats.includes(recipientUsername)) {
       setRecentChats(prev => [recipientUsername, ...prev.slice(0, 4)]); 
     }
   }, [recipientUsername, recentChats]);
 
+  //this starts a new chat with a new user from the input field
   const startChat = () => {
     if (!recipientInput.trim()) return;
     setRecipientUsername(recipientInput.trim());
@@ -207,29 +210,24 @@ function ChatApp() {
 
   return (
     <div style={{ maxWidth: 600, margin: '20px auto', padding: 20 }}>
-      {/* select thy recipient */}
+      {/* select thy recipient (the selection screen*/}
       {!recipientUsername ? (
         <div style={{ 
-          background: '#f8f9fa', 
+
           padding: 20, 
           borderRadius: 10, 
           textAlign: 'center' 
         }}>
-          <h3>Start a New Chat</h3>
+          <h3>start new chat</h3>
           <div style={{ marginBottom: 20 }}>
             <input
               type="text"
               value={recipientInput}
               onChange={e => setRecipientInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && startChat()}
-              placeholder="Enter username to chat with..."
+              placeholder="enter username to chat with..."
               style={{ 
-                padding: 10, 
-                fontSize: 16, 
-                borderRadius: 5, 
-                border: '1px solid #ddd', 
-                marginRight: 10,
-                width: 250
+              
               }}
             />
             <button
@@ -237,14 +235,10 @@ function ChatApp() {
               style={{ 
                 padding: 10, 
                 fontSize: 16, 
-                borderRadius: 5, 
-                background: '#3466ea', 
-                color: 'white', 
-                border: 'none', 
-                cursor: 'pointer' 
+              
               }}
             >
-              Start Chat
+              start chat
             </button>
           </div>
           
@@ -259,10 +253,7 @@ function ChatApp() {
                     onClick={() => setRecipientUsername(chat)}
                     style={{ 
                       padding: '8px 16px', 
-                      borderRadius: 20, 
-                      background: '#e9ecef', 
-                      border: 'none', 
-                      cursor: 'pointer' 
+                     
                     }}
                   >
                     {chat}
@@ -275,18 +266,12 @@ function ChatApp() {
       ) : (
         /* Chat Interface */
         <div style={{ 
-          border: '1px solid #23263a', 
-          borderRadius: 10, 
-          background: '#191b22', 
-          color: '#fff', 
-          height: 500, 
-          display: 'flex', 
-          flexDirection: 'column' 
+        borderRadius: '10px'
         }}>
           {/* Chat Header */}
           <div style={{ 
             padding: 15, 
-            borderBottom: '1px solid #23263a', 
+           
             display: 'flex', 
             justifyContent: 'space-between', 
             alignItems: 'center' 
@@ -295,29 +280,24 @@ function ChatApp() {
             <button
               onClick={() => setRecipientUsername('')}
               style={{ 
-                background: 'transparent', 
-                border: '1px solid #666', 
-                color: '#fff', 
-                borderRadius: 5, 
-                padding: '5px 10px', 
-                cursor: 'pointer' 
+            
               }}
             >
-              ← Back
+              Back
             </button>
           </div>
 
           {/* Messages */}
           <div style={{ 
             flex: 1, 
-            overflowY: 'auto', 
-            background: '#25273c', 
+            borderRadius: '10px',
+            
             padding: 15, 
             marginBottom: 0 
           }}>
             {messages.length === 0 ? (
               <div style={{ textAlign: 'center', color: '#666', marginTop: 50 }}>
-                No messages yet. Start the conversation!
+                no messages yet.
               </div>
             ) : (
               messages.map((msg) => (
@@ -329,11 +309,7 @@ function ChatApp() {
                     style={{
                       display: 'inline-block',
                       background: msg.owner === currentUser ? '#3466ea' : '#2b2f45',
-                      color: '#fff',
-                      borderRadius: 14,
-                      padding: '8px 15px',
-                      maxWidth: 300,
-                      wordBreak: 'break-word'
+                      borderRadius: '5px'
                     }}
                   >
                     {msg.content}
@@ -349,41 +325,29 @@ function ChatApp() {
             <div ref={messagesEndRef}></div>
           </div>
 
-          {/* Message Input */}
+          {/* message input */}
           <div style={{ 
             display: 'flex', 
             gap: 8, 
-            padding: 15, 
-            borderTop: '1px solid #23263a' 
+            
           }}>
             <input
               value={messageInput}
               onChange={e => setMessageInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && sendMessage()}
-              placeholder="Type a message..."
+              placeholder="type a message..."
               style={{ 
-                flex: 1, 
-                borderRadius: 8, 
-                border: 'none', 
-                padding: 12, 
-                outline: 'none', 
-                background: '#000', 
-                color: '#fff' 
+               
               }}
             />
             <button
               onClick={sendMessage}
               style={{ 
-                padding: '0 20px', 
-                borderRadius: 8, 
-                background: '#000', 
-                color: '#fff', 
-                border: 'none', 
-                fontWeight: 600, 
-                cursor: 'pointer'
+                borderRadius: '10px'
+                
               }}
             >
-              Send
+              send
             </button>
           </div>
         </div>
@@ -392,4 +356,4 @@ function ChatApp() {
   );
 }
 
-export default ChatApp;
+export default Chat;

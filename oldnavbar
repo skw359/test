@@ -32,20 +32,20 @@ export default function Sidebar() {
                 <Image src="/Logo.png" alt="Velocity Logo" width={100} height={100} />
             </div>
             
-            {/* Navigation Sidebar - Now transparent to show background gradient */}
+            {/* Navigation Sidebar - Now with transparent background */}
             <div style={{
                 position: 'fixed',
                 left: 0,
                 top: 0,
                 width: '80px',
                 height: '100vh',
-                backgroundColor: 'rgba(15, 20, 25, 0.3)', // Semi-transparent overlay
-                backdropFilter: 'blur(10px)', // Optional: adds a glass effect
+                backgroundColor: 'rgba(0, 0, 0, 0.2)', // Semi-transparent overlay
+                backdropFilter: 'blur(10px)', // Glass effect
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
                 padding: '20px 0',
-                borderRight: '1px solid rgba(45, 55, 72, 0.5)', // Semi-transparent border
+                borderRight: '1px solid rgba(255, 255, 255, 0.1)',
                 zIndex: 999
             }}>
                 {/* Menu Icon */}
@@ -54,9 +54,9 @@ export default function Sidebar() {
                     cursor: 'pointer',
                     marginTop: '120px' // Space for logo
                 }}>
-                    <div style={{ width: '24px', height: '2px', backgroundColor: 'rgba(113, 128, 150, 0.8)', marginBottom: '6px' }}></div>
-                    <div style={{ width: '24px', height: '2px', backgroundColor: 'rgba(113, 128, 150, 0.8)', marginBottom: '6px' }}></div>
-                    <div style={{ width: '24px', height: '2px', backgroundColor: 'rgba(113, 128, 150, 0.8)' }}></div>
+                    <div style={{ width: '24px', height: '2px', backgroundColor: 'rgba(255, 255, 255, 0.6)', marginBottom: '6px' }}></div>
+                    <div style={{ width: '24px', height: '2px', backgroundColor: 'rgba(255, 255, 255, 0.6)', marginBottom: '6px' }}></div>
+                    <div style={{ width: '24px', height: '2px', backgroundColor: 'rgba(255, 255, 255, 0.6)' }}></div>
                 </div>
                 
                 {/* Navigation Icons */}
@@ -67,7 +67,7 @@ export default function Sidebar() {
                         style={{
                             width: '48px',
                             height: '48px',
-                            backgroundColor: activeIcon === item.id ? 'rgba(102, 126, 234, 0.8)' : 'transparent',
+                            backgroundColor: activeIcon === item.id ? 'rgba(102, 126, 234, 0.8)' : 'rgba(255, 255, 255, 0.1)',
                             borderRadius: '12px',
                             display: 'flex',
                             alignItems: 'center',
@@ -76,16 +76,16 @@ export default function Sidebar() {
                             cursor: 'pointer',
                             fontSize: '20px',
                             transition: 'background-color 0.2s ease',
-                            border: activeIcon === item.id ? '1px solid rgba(102, 126, 234, 0.3)' : '1px solid transparent'
+                            border: '1px solid rgba(255, 255, 255, 0.1)'
                         }}
                         onMouseEnter={e => {
                             if (activeIcon !== item.id) {
-                                e.currentTarget.style.backgroundColor = 'rgba(45, 55, 72, 0.4)';
+                                e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
                             }
                         }}
                         onMouseLeave={e => {
                             if (activeIcon !== item.id) {
-                                e.currentTarget.style.backgroundColor = 'transparent';
+                                e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
                             }
                         }}
                         title={item.label}
@@ -98,7 +98,7 @@ export default function Sidebar() {
     );
 }
 
-// SignOutButton should not be default export since Sidebar is already default export
+// SignOutButton with updated styling
 export const SignOutButton = () => {
     const { signOut } = useAuthenticator();
     return (
@@ -114,11 +114,18 @@ export const SignOutButton = () => {
                     padding: '8px 16px',
                     backgroundColor: 'rgba(102, 126, 234, 0.8)',
                     color: 'white',
-                    border: '1px solid rgba(102, 126, 234, 0.3)',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
                     borderRadius: '8px',
                     cursor: 'pointer',
                     fontSize: '14px',
-                    backdropFilter: 'blur(5px)'
+                    backdropFilter: 'blur(10px)',
+                    transition: 'all 0.2s ease'
+                }}
+                onMouseEnter={e => {
+                    e.currentTarget.style.backgroundColor = 'rgba(102, 126, 234, 1)';
+                }}
+                onMouseLeave={e => {
+                    e.currentTarget.style.backgroundColor = 'rgba(102, 126, 234, 0.8)';
                 }}
             >
                 Sign Out

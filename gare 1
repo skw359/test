@@ -1,0 +1,362 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { getCurrentUser } from 'aws-amplify/auth';
+import { generateClient } from 'aws-amplify/api';
+
+const client = generateClient();
+
+function Chat() {
+  const [currentUser, setCurrentUser] = useState('');
+  const [recipientUsername, setRecipientUsername] = useState('');
+  const [recipientInput, setRecipientInput] = useState('');
+  const [messages, setMessages] = useState([]);
+  const [messageInput, setMessageInput] = useState('');
+  const [recentChats, setRecentChats] = useState([]);
+  const [lastMessages, setLastMessages] = useState({});
+  const messagesEndRef = useRef(null);
+  const [isLoading, setIsLoading] = useState(false);
+  
+  const subscriptionRefs = useRef([]);
+
+  // Get current authenticated user
+  useEffect(() => {
+    const fetchCurrentUser = async () => {
+      try {
+        const user = await getCurrentUser();
+        setCurrentUser(user.username || user.signInDetails?.loginId || '');
+      } catch (err) {
+        console.log('No authenticated user:', err);
+      }
+    };
+
+    fetchCurrentUser();
+  }, []);
+
+  // Fetch last message for each recent chat using Gen 2 syntax
+  const fetchLastMessage = async (chatUser) => {
+    if (!currentUser || !chatUser) return null;
+    
+    try {
+      const { data: sentMessages } = await client.models.Message.list({
+        filter: {
+          and: [
+            { owner: { eq: currentUser } },
+            { receiver: { eq: chatUser } }
+          ]
+        },
+        limit: 1,
+        sortDirection: 'DESC'
+      });
+      
+      const { data: receivedMessages } = await client.models.Message.list({
+        filter: {
+          and: [
+            { owner: { eq: chatUser } },
+            { receiver: { eq: currentUser } }
+          ]
+        },
+        limit: 1,
+        sortDirection: 'DESC'
+      });
+
+      const allMessages = [...(sentMessages || []), ...(receivedMessages || [])];
+
+      if (allMessages.length > 0) {
+        const lastMsg = allMessages.sort((a, b) => 
+          new Date(b.timestamp || b.createdAt || 0).getTime() - 
+          new Date(a.timestamp || a.createdAt || 0).getTime()
+        )[0];
+        return lastMsg;
+      }
+      return null;
+    } catch (error) {
+      console.error('Error fetching last message:', error);
+      return null;
+    }
+  };
+
+  // Update last messages when recent chats change
+  useEffect(() => {
+    const updateLastMessages = async () => {
+      if (recentChats.length === 0 || !currentUser) return;
+      
+      const lastMsgPromises = recentChats.map(async (chat) => {
+        const lastMsg = await fetchLastMessage(chat);
+        return [chat, lastMsg];
+      });
+      
+      const results = await Promise.all(lastMsgPromises);
+      const newLastMessages = {};
+      results.forEach(([chat, msg]) => {
+        if (msg) newLastMessages[chat] = msg;
+      });
+      
+      setLastMessages(newLastMessages);
+    };
+
+    updateLastMessages();
+  }, [recentChats, currentUser]);
+
+  // Main effect for fetching and observing messages
+  useEffect(() => {
+    if (!currentUser || !recipientUsername) return;
+
+    setIsLoading(true);
+    console.log('Setting up real-time chat between:', currentUser, 'and', recipientUsername);
+
+    subscriptionRefs.current.forEach(cleanup => cleanup());
+    subscriptionRefs.current = [];
+
+    let sentMsgs = [];
+    let receivedMsgs = [];
+
+    const updateCombinedMessages = (msgs, type) => {
+      if (type === 'sent') {
+        sentMsgs = msgs;
+      } else {
+        receivedMsgs = msgs;
+      }
+
+      const allMessages = [...sentMsgs, ...receivedMsgs];
+      const sortedMessages = allMessages.sort((a, b) =>
+        new Date(a.timestamp || a.createdAt || 0).getTime() - 
+        new Date(b.timestamp || b.createdAt || 0).getTime()
+      );
+
+      setMessages(sortedMessages);
+      setIsLoading(false);
+    };
+
+    const sentMessagesObserver = client.models.Message.observeQuery({
+      filter: {
+        and: [
+          { owner: { eq: currentUser } },
+          { receiver: { eq: recipientUsername } }
+        ]
+      }
+    }).subscribe({
+      next: ({ items: sentMessages }) => {
+        console.log('Sent messages updated:', sentMessages.length);
+        updateCombinedMessages(sentMessages, 'sent');
+      },
+      error: (error) => {
+        console.error('Error observing sent messages:', error);
+        setIsLoading(false);
+      }
+    });
+
+    const receivedMessagesObserver = client.models.Message.observeQuery({
+      filter: {
+        and: [
+          { owner: { eq: recipientUsername } },
+          { receiver: { eq: currentUser } }
+        ]
+      }
+    }).subscribe({
+      next: ({ items: receivedMessages }) => {
+        console.log('Received messages updated:', receivedMessages.length);
+        updateCombinedMessages(receivedMessages, 'received');
+      },
+      error: (error) => {
+        console.error('Error observing received messages:', error);
+        setIsLoading(false);
+      }
+    });
+
+    subscriptionRefs.current.push(
+      () => sentMessagesObserver.unsubscribe(),
+      () => receivedMessagesObserver.unsubscribe()
+    );
+
+    return () => {
+      subscriptionRefs.current.forEach(cleanup => cleanup());
+      subscriptionRefs.current = [];
+    };
+  }, [currentUser, recipientUsername]);
+
+  // Auto scroll to bottom when new messages arrive
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  // Add new recipient to recent chats
+  useEffect(() => {
+    if (recipientUsername && !recentChats.includes(recipientUsername)) {
+      setRecentChats(prev => [recipientUsername, ...prev.slice(0, 9)]);
+    }
+  }, [recipientUsername, recentChats]);
+
+  // Start a new chat
+  const startChat = () => {
+    if (!recipientInput.trim()) return;
+    setRecipientUsername(recipientInput.trim());
+    setRecipientInput('');
+  };
+
+  // Send message
+  const sendMessage = async () => {
+    if (!messageInput.trim() || !currentUser || !recipientUsername) {
+      console.log('Missing required fields:', { 
+        messageInput: messageInput.trim(), 
+        currentUser, 
+        recipientUsername 
+      });
+      return;
+    }
+    
+    const messageData = {
+      owner: currentUser,
+      receiver: recipientUsername,
+      content: messageInput.trim(),
+      timestamp: new Date().toISOString(),
+    };
+    
+    console.log('Sending message:', messageData);
+    
+    try {
+      const { data: newMessage, errors } = await client.models.Message.create(messageData);
+      
+      if (errors) {
+        console.error('Error sending message:', errors);
+        return;
+      }
+      
+      console.log('Message sent successfully:', newMessage);
+      setMessageInput('');
+      
+      if (newMessage) {
+        setLastMessages(prev => ({
+          ...prev,
+          [recipientUsername]: newMessage
+        }));
+      }
+    } catch (error) {
+      console.error('Error sending message:', error);
+    }
+  };
+
+  const formatTime = (timestamp) => {
+    if (!timestamp) return '';
+    
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffMins < 1) return 'now';
+    if (diffMins < 60) return `${diffMins}m`;
+    if (diffHours < 24) return `${diffHours}h`;
+    if (diffDays < 7) return `${diffDays}d`;
+    return date.toLocaleDateString();
+  };
+
+  if (!currentUser) return <div>Loading user...</div>;
+
+  return (
+    <div>
+      {/* Sidebar */}
+      <div>
+        <h2>Chats</h2>
+        
+        {/* New Chat Input */}
+        <div>
+          <input
+            type="text"
+            value={recipientInput}
+            onChange={e => setRecipientInput(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && startChat()}
+            placeholder="Start new chat..."
+          />
+          <button onClick={startChat}>Start Chat</button>
+        </div>
+
+        {/* Chat List */}
+        <div>
+          {recentChats.length === 0 ? (
+            <div>No recent chats</div>
+          ) : (
+            recentChats.map(chat => {
+              const lastMsg = lastMessages[chat];
+              
+              return (
+                <div key={chat} onClick={() => setRecipientUsername(chat)}>
+                  <strong>{chat}</strong>
+                  {lastMsg && (
+                    <div>
+                      <small>{formatTime(lastMsg.timestamp)}</small>
+                      <div>
+                        {lastMsg.owner === currentUser ? 'You: ' : ''}
+                        {lastMsg.content}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      {/* Main Chat Area */}
+      <div>
+        {!recipientUsername ? (
+          <div>
+            <h3>Welcome to Messaging</h3>
+            <p>Select a chat from the sidebar or start a new conversation</p>
+          </div>
+        ) : (
+          <div>
+            {/* Chat Header */}
+            <div>
+              <h3>Chat with {recipientUsername}</h3>
+              <div>{isLoading ? 'Loading...' : 'Online'}</div>
+            </div>
+
+            {/* Messages */}
+            <div>
+              {isLoading ? (
+                <div>Loading messages...</div>
+              ) : messages.length === 0 ? (
+                <div>No messages yet. Start the conversation!</div>
+              ) : (
+                messages.map((msg) => (
+                  <div key={msg.id}>
+                    <strong>{msg.owner === currentUser ? 'You' : msg.owner}:</strong>
+                    <span> {msg.content}</span>
+                    <small>
+                      {' '}({new Date(msg.timestamp || msg.createdAt || '').toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })})
+                    </small>
+                  </div>
+                ))
+              )}
+              <div ref={messagesEndRef}></div>
+            </div>
+
+            {/* Message Input */}
+            <div>
+              <input
+                value={messageInput}
+                onChange={e => setMessageInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendMessage()}
+                placeholder="Type a message..."
+                disabled={isLoading}
+              />
+              <button
+                onClick={sendMessage}
+                disabled={isLoading || !messageInput.trim()}
+              >
+                Send
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default Chat;

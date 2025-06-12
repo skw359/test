@@ -1,0 +1,17 @@
+import Sidebar, { SignOutButton } from './Sidebar';
+
+export default function Layout({ children }) {
+  return (
+    <div className="gradient-container">
+      <Sidebar />
+      <SignOutButton />
+      <main style={{ 
+        marginLeft: '80px', // Account for sidebar width
+        minHeight: '100vh',
+        padding: '20px'
+      }}>
+        {children}
+      </main>
+    </div>
+  );
+}

@@ -1,0 +1,41 @@
+import { PathParamsContext } from "next/dist/shared/lib/hooks-client-context.shared-runtime";
+import styles from "../styles/homepage.module.css";
+import Link from "next/link";
+import Sidebar from '../../components/shared/SidebarWrapper';
+import Layout from '../../components/shared/layout';
+
+
+export default function HomePage() {
+
+    const items = [
+        { title: "Upcoming/Calendar?", content: "[insert upcoming events]", path: "/homepage" },
+        { title: "Recent Messages", content: "[insert messages from chat feature]", path:"/chat" },
+        { title: "User/Setting Notifications", content: "[insert settings information]", path:"/settings"  }
+    ];
+
+    return (
+        
+       
+        <div className='home-test'>
+
+            <div className={styles["welcome-header"]}>
+                <h2> Welcome, [insert name]
+                </h2>
+            </div>
+
+            <div className={styles["grid-container"]}>
+                {items.map((item, index) => (
+                    <Link href={item.path} key={index}>
+                        <div className={styles["grid-item"]} key={index}>
+                            <h3 style={{ textAlign: "center" }}>{item.title}</h3>
+                            <hr className ={styles["grid-divider"]} />
+                            <p style={{ textAlign: "left", whiteSpace: "pre-line", margin: "5px", color: "#858585", fontSize: "13px" }}>{"\n" + item.content}</p>
+                        </div>
+                    </Link>
+                ))}
+            </div>
+
+        </div>
+       
+    );
+}

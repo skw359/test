@@ -99,7 +99,7 @@ function Chat() {
   const sentMsgsRef = useRef([]);
   const receivedMsgsRef = useRef([]);
 
-  // FIXED: Main effect for getting and observing messages
+  // the main effect for getting and observing messages
   useEffect(() => {
     if (!currentUser || !recipientUsername) return;
 
@@ -216,7 +216,7 @@ function Chat() {
     setRecipientInput('');
   };
 
-  // FIXED: send msg with better error handling
+  // send msg 
   const sendMessage = async () => {
     if (!messageInput.trim() || !currentUser || !recipientUsername) {
       console.log({ messageInput: messageInput.trim(), currentUser, recipientUsername });

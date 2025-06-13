@@ -95,38 +95,49 @@ function Chat() {
     updateLastMessages();
   }, [recentChats, currentUser]);
 
-  // this is the main effect for getting and observing messages
+  // FIXED: Main effect for getting and observing messages
   useEffect(() => {
     if (!currentUser || !recipientUsername) return;
 
     setloading(true);
-    console.log(currentUser, recipientUsername);
+    console.log('Setting up subscriptions for:', currentUser, recipientUsername);
 
     // clean up any existing subscriptions
     subscriptionRefs.current.forEach(cleanup => cleanup());
     subscriptionRefs.current = [];
 
-    // state to combine both sent and received messages
-    let sentMsgs = [];
-    let receivedMsgs = [];
+    // Use refs to maintain the latest state across subscription callbacks
+    const sentMsgsRef = useRef([]);
+    const receivedMsgsRef = useRef([]);
 
-    const updateCombinedMessages = (msgs, type) => {
-      if (type === 'sent') {
-        sentMsgs = msgs;
-      } else {
-        receivedMsgs = msgs;
-      }
-
-      // combine and sort messages
-      const allMessages = [...sentMsgs, ...receivedMsgs];
-      const sortedMessages = allMessages.sort((a, b) =>new Date(a.timestamp || a.createdAt || 0).getTime() - new Date(b.timestamp || b.createdAt || 0).getTime()
+    const updateCombinedMessages = () => {
+      // Combine and sort messages
+      const allMessages = [...sentMsgsRef.current, ...receivedMsgsRef.current];
+      const sortedMessages = allMessages.sort((a, b) => 
+        new Date(a.timestamp || a.createdAt || 0).getTime() - new Date(b.timestamp || b.createdAt || 0).getTime()
       );
+
+      console.log('Updating messages:', {
+        sent: sentMsgsRef.current.length,
+        received: receivedMsgsRef.current.length,
+        total: sortedMessages.length
+      });
 
       setMessages(sortedMessages);
       setloading(false);
     };
 
-    // observeQuery for realtime updates,this handles both initial fetch and subscriptions
+    // Track subscription status
+    let sentSubscriptionReady = false;
+    let receivedSubscriptionReady = false;
+
+    const checkAndUpdate = () => {
+      if (sentSubscriptionReady && receivedSubscriptionReady) {
+        updateCombinedMessages();
+      }
+    };
+
+    // observeQuery for sent messages
     const sentMessagesObserver = client.models.Message.observeQuery({
       filter: {
         and: [
@@ -136,15 +147,19 @@ function Chat() {
       }
     }).subscribe({
       next: ({ items: sentMessages }) => {
-        console.log(sentMessages.length);
-        updateCombinedMessages(sentMessages);
+        console.log('Sent messages updated:', sentMessages.length);
+        sentMsgsRef.current = sentMessages || [];
+        sentSubscriptionReady = true;
+        checkAndUpdate();
       },
       error: (error) => {
-        console.error(error);
+        console.error('Sent messages subscription error:', error);
+        sentSubscriptionReady = true; // Still mark as ready to prevent hanging
         setloading(false);
       }
     });
 
+    // observeQuery for received messages
     const receivedMessagesObserver = client.models.Message.observeQuery({
       filter: {
         and: [
@@ -154,11 +169,14 @@ function Chat() {
       }
     }).subscribe({
       next: ({ items: receivedMessages }) => {
-        console.log(receivedMessages.length);
-        updateCombinedMessages(receivedMessages);
+        console.log('Received messages updated:', receivedMessages.length);
+        receivedMsgsRef.current = receivedMessages || [];
+        receivedSubscriptionReady = true;
+        checkAndUpdate();
       },
       error: (error) => {
-        console.error(error);
+        console.error('Received messages subscription error:', error);
+        receivedSubscriptionReady = true; // Still mark as ready to prevent hanging
         setloading(false);
       }
     });
@@ -169,6 +187,7 @@ function Chat() {
     );
 
     return () => {
+      console.log('Cleaning up subscriptions');
       subscriptionRefs.current.forEach(cleanup => cleanup());
       subscriptionRefs.current = [];
     };
@@ -193,7 +212,7 @@ function Chat() {
     setRecipientInput('');
   };
 
-  // send msg 
+  // FIXED: send msg with better error handling
   const sendMessage = async () => {
     if (!messageInput.trim() || !currentUser || !recipientUsername) {
       console.log({ messageInput: messageInput.trim(), currentUser, recipientUsername });
@@ -207,16 +226,17 @@ function Chat() {
       timestamp: new Date().toISOString(),
     };
     
-    console.log(messageData);
+    console.log('Sending message:', messageData);
     
     try {
       const { data: newMessage, errors } = await client.models.Message.create(messageData);
       
       if (errors) {
-        console.error(errors);
+        console.error('Create message errors:', errors);
         return;
       }
       
+      console.log('Message sent successfully:', newMessage);
       setMessageInput('');
       
       // update last msgs for recent chats
@@ -227,7 +247,7 @@ function Chat() {
         }));
       }
     } catch (error) {
-      console.error(error);
+      console.error('Send message error:', error);
     }
   };
 

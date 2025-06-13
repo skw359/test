@@ -1,0 +1,30 @@
+import "../styles/globals.css";
+import outputs from "../../amplify_outputs.json";
+import { Authenticator } from '@aws-amplify/ui-react';
+import '@aws-amplify/ui-react/styles.css';
+import { Amplify } from "aws-amplify";
+import Layout from '../../components/shared/layout';
+import ProfileButton from '../../components/shared/ProfileButton';
+import styles from '../styles/_app.module.css';
+
+Amplify.configure(outputs);
+
+export default function App({ Component, pageProps }) {
+  return (
+    <Layout>
+      <Authenticator>
+        {({ signOut }) => (
+          <>
+            <nav className={styles.navbar}>
+              <div className={styles.navTitle}>Velocity</div>
+              <ProfileButton signOut={signOut} />
+            </nav>
+            <div className={styles.pageContent}>
+              <Component {...pageProps} /> 
+            </div>
+          </>
+        )}
+      </Authenticator>
+    </Layout>
+  );
+}

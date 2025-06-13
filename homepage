@@ -1,41 +1,85 @@
-import { PathParamsContext } from "next/dist/shared/lib/hooks-client-context.shared-runtime";
+import { useEffect, useState } from 'react';
+import { getCurrentUser } from 'aws-amplify/auth';
+import { useAuthenticator } from '@aws-amplify/ui-react';
 import styles from "../styles/homepage.module.css";
 import Link from "next/link";
 import Sidebar from '../../components/shared/SidebarWrapper';
 import Layout from '../../components/shared/layout';
 
-
 export default function HomePage() {
+    const [currentUser, setCurrentUser] = useState('');
+    const { signOut } = useAuthenticator((context) => [context.signOut]);
+
+    // Get current authenticated user
+    useEffect(() => {
+        const fetchCurrentUser = async () => {
+            try {
+                const user = await getCurrentUser();
+                setCurrentUser(user.username || user.signInDetails?.loginId || '');
+            } catch (err) {
+                console.log(err);
+            }
+        };
+
+        fetchCurrentUser();
+    }, []);
 
     const items = [
         { title: "Upcoming/Calendar?", content: "[insert upcoming events]", path: "/homepage" },
-        { title: "Recent Messages", content: "[insert messages from chat feature]", path:"/chat" },
-        { title: "User/Setting Notifications", content: "[insert settings information]", path:"/settings"  }
+        { title: "Recent Messages", content: "[insert messages from chat feature]", path: "/chat" },
+        { title: "User/Setting Notifications", content: "[insert settings information]", path: "/settings" }
     ];
 
     return (
-        
-       
         <div className='home-test'>
+            {/* User header - only shown on homepage */}
+            <header style={{ 
+                padding: '1rem', 
+                borderBottom: '1px solid #2d3748',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                backgroundColor: 'transparent'
+            }}>
+                <span style={{ color: '#fff' }}>Welcome, {currentUser}</span>
+                <button 
+                    onClick={signOut} 
+                    style={{ 
+                        padding: '0.5rem 1rem',
+                        backgroundColor: '#667eea',
+                        border: 'none',
+                        borderRadius: '4px',
+                        color: 'white',
+                        cursor: 'pointer'
+                    }}
+                >
+                    Sign Out
+                </button>
+            </header>
 
             <div className={styles["welcome-header"]}>
-                <h2> Welcome, [insert name]
-                </h2>
+                <h2>Welcome, {currentUser || '[loading...]'}</h2>
             </div>
-
+            
             <div className={styles["grid-container"]}>
                 {items.map((item, index) => (
                     <Link href={item.path} key={index}>
-                        <div className={styles["grid-item"]} key={index}>
+                        <div className={styles["grid-item"]}>
                             <h3 style={{ textAlign: "center" }}>{item.title}</h3>
-                            <hr className ={styles["grid-divider"]} />
-                            <p style={{ textAlign: "left", whiteSpace: "pre-line", margin: "5px", color: "#858585", fontSize: "13px" }}>{"\n" + item.content}</p>
+                            <hr className={styles["grid-divider"]} />
+                            <p style={{ 
+                                textAlign: "left", 
+                                whiteSpace: "pre-line", 
+                                margin: "5px", 
+                                color: "#858585", 
+                                fontSize: "13px" 
+                            }}>
+                                {"\n" + item.content}
+                            </p>
                         </div>
                     </Link>
                 ))}
             </div>
-
         </div>
-       
     );
 }

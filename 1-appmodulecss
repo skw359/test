@@ -1,0 +1,127 @@
+.dropdownWrapper {
+  position: relative;
+}
+
+.profileButton {
+  width: 40px;
+  height: 40px;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  background: transparent;
+  border: none;
+}
+.profileButton:hover {
+  background-color: #5a67d8;
+}
+
+.dropdownMenu {
+  position: absolute;
+  top: 50px;
+  
+  right: 0;
+  background-color: #1a1d29;
+  border-radius: 8px;
+  width: 200px;
+  z-index: 1000;
+}
+
+.userInfoSection {
+  padding: 16px;
+  border-bottom: 1px solid #2d3748;
+  background-color: #252936;
+}
+
+.userInfo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background-color: #667eea;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: white;
+}
+
+.username {
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.userSubtitle {
+  color: #718096;
+  font-size: 12px;
+}
+
+.menuOptions {
+  padding: 8px 0;
+}
+
+.menuButton {
+  width: 100%;
+  padding: 12px 16px;
+  background-color: transparent;
+  border: none;
+  color: #fff;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.menuButton:hover {
+  background-color: #2d3748;
+}
+
+.menuDivider {
+  height: 1px;
+  background-color: #2d3748;
+  margin: 8px 0;
+}
+
+.signOutButton {
+  color: #f56565;
+}
+
+.navbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background-color: rgba(26, 29, 41, 0.95);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid #2d3748;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  z-index: 50;
+}
+
+.navTitle {
+  color: #fff;
+  font-size: 18px;
+  font-weight: 600;
+  margin-left: 80px;
+}
+
+.pageContent {
+  padding-top: 60px;
+}

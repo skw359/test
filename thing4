@@ -95,6 +95,10 @@ function Chat() {
     updateLastMessages();
   }, [recentChats, currentUser]);
 
+  // Add refs at component level for message tracking
+  const sentMsgsRef = useRef([]);
+  const receivedMsgsRef = useRef([]);
+
   // FIXED: Main effect for getting and observing messages
   useEffect(() => {
     if (!currentUser || !recipientUsername) return;
@@ -106,9 +110,9 @@ function Chat() {
     subscriptionRefs.current.forEach(cleanup => cleanup());
     subscriptionRefs.current = [];
 
-    // Use refs to maintain the latest state across subscription callbacks
-    const sentMsgsRef = useRef([]);
-    const receivedMsgsRef = useRef([]);
+    // Reset message refs for new chat
+    sentMsgsRef.current = [];
+    receivedMsgsRef.current = [];
 
     const updateCombinedMessages = () => {
       // Combine and sort messages

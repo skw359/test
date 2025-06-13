@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import { getCurrentUser } from 'aws-amplify/auth';
 import styles from '../../src/styles/_app.module.css';
 
-
 export default function ProfileButton({ signOut }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState('');
@@ -19,29 +18,77 @@ export default function ProfileButton({ signOut }) {
     };
     fetchCurrentUser();
   }, []);
-  
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setProfileOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Get initials from username
+  const getInitials = (name) => {
+    if (!name) return '?';
+    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+  };
 
   return (
     <div className={styles.dropdownWrapper} ref={dropdownRef}>
       <button
         className={styles.profileButton}
         onClick={() => setProfileOpen(!profileOpen)}
+        style={{
+          width: '40px',
+          height: '40px',
+          borderRadius: '50%',
+          backgroundColor: '#667eea',
+          border: 'none',
+          color: 'white',
+          fontSize: '14px',
+          fontWeight: '600',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          transition: 'all 0.2s ease'
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.backgroundColor = '#5a67d8';
+          e.currentTarget.style.transform = 'scale(1.05)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.backgroundColor = '#667eea';
+          e.currentTarget.style.transform = 'scale(1)';
+        }}
       >
-        {currentUser}
+        {getInitials(currentUser)}
       </button>
 
       {profileOpen && (
-        <div className={styles.dropdownMenu}>
+        <div 
+          className={styles.dropdownMenu}
+          style={{
+            boxShadow: '0 10px 25px rgba(0, 0, 0, 0.3)',
+            overflow: 'hidden'
+          }}
+        >
           <div className={styles.userInfoSection}>
             <div className={styles.userInfo}>
               <div className={styles.avatar}>
-                {currentUser}
+                {getInitials(currentUser)}
               </div>
               <div>
                 <div className={styles.username}>
                   {currentUser || 'Loading...'}
                 </div>
-                <div className={styles.userSubtitle}></div>
+                <div className={styles.userSubtitle}>
+                  Online
+                </div>
               </div>
             </div>
           </div>
@@ -51,10 +98,21 @@ export default function ProfileButton({ signOut }) {
               className={styles.menuButton}
               onClick={() => {
                 setProfileOpen(false);
+                // Add profile page navigation here if you have one
+                // router.push('/profile');
+              }}
+            >
+              👤 View Profile
+            </button>
+
+            <button
+              className={styles.menuButton}
+              onClick={() => {
+                setProfileOpen(false);
                 window.location.href = "/settings";
               }}
             >
-              Settings
+              ⚙️ Settings
             </button>
 
             <div className={styles.menuDivider} />
@@ -66,7 +124,7 @@ export default function ProfileButton({ signOut }) {
                 signOut();
               }}
             >
-              Sign Out
+              🚪 Sign Out
             </button>
           </div>
         </div>

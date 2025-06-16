@@ -1,18 +1,23 @@
-import { useState } from 'react';
+'use client';
+
+import { useState, useEffect } from 'react';
+import { getCurrentUser } from 'aws-amplify/auth';
+import { generateClient } from 'aws-amplify/api';
 import styles from '../styles/calendar.module.css';
+
+const client = generateClient();
 
 export default function Calendar() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState(null);
   const [showPopup, setShowPopup] = useState(false);
+  const [currentUser, setCurrentUser] = useState('');
+  const [meetings, setMeetings] = useState({});
+  const [loading, setLoading] = useState(true);
   
   const today = new Date();
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
-  
-  const events = {
-    '2025-6-5': ['Meeting with Person at 10 AM, Location: 3672 AnaVation Dr.', 'Meetup with John at X Location @ 7 PM']
-  };
   
   const monthNames = [
     'January', 'February', 'March', 'April', 'May', 'June',
@@ -26,12 +31,143 @@ export default function Calendar() {
   
   const calendarDays = [];
   
+  // Get current user
+  useEffect(() => {
+    const fetchCurrentUser = async () => {
+      try {
+        const user = await getCurrentUser();
+        setCurrentUser(user.username || user.signInDetails?.loginId || '');
+      } catch (err) {
+        console.log('Error fetching user:', err);
+      }
+    };
+    fetchCurrentUser();
+  }, []);
 
+  // Load meetings from all chats the user is part of
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const loadMeetings = async () => {
+      try {
+        setLoading(true);
+        
+        // Get all chats the user is part of
+        const userChats = await client.models.ChatUser.list({
+          filter: { username: { eq: currentUser } }
+        });
+
+        const allMeetings = {};
+
+        // For each chat, get all messages and extract meetings
+        for (const chatUser of userChats.data) {
+          const messages = await client.models.ChatMessages.list({
+            filter: { chatId: { eq: chatUser.chatId } }
+          });
+
+          // Process messages to find accepted meetings
+          messages.data.forEach(msg => {
+            try {
+              const content = JSON.parse(msg.content);
+              
+              if (content.type === 'meeting_invite' && content.meeting.status === 'accepted') {
+                const meeting = content.meeting;
+                const meetingDate = new Date(meeting.dateTime);
+                const dateKey = `${meetingDate.getFullYear()}-${meetingDate.getMonth() + 1}-${meetingDate.getDate()}`;
+                
+                if (!allMeetings[dateKey]) {
+                  allMeetings[dateKey] = [];
+                }
+                
+                allMeetings[dateKey].push({
+                  ...meeting,
+                  chatId: chatUser.chatId,
+                  messageId: msg.id
+                });
+              }
+            } catch (e) {
+              // Skip non-JSON messages or invalid format
+            }
+          });
+        }
+
+        setMeetings(allMeetings);
+        setLoading(false);
+      } catch (error) {
+        console.error('Error loading meetings:', error);
+        setLoading(false);
+      }
+    };
+
+    loadMeetings();
+  }, [currentUser]);
+
+  // Real-time subscription for new meetings
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const subscription = client.models.ChatMessages.observeQuery().subscribe({
+      next: ({ items }) => {
+        // Process new messages for meeting updates
+        const updatedMeetings = { ...meetings };
+        
+        items.forEach(msg => {
+          try {
+            const content = JSON.parse(msg.content);
+            
+            if (content.type === 'meeting_invite' && content.meeting.status === 'accepted') {
+              const meeting = content.meeting;
+              const meetingDate = new Date(meeting.dateTime);
+              const dateKey = `${meetingDate.getFullYear()}-${meetingDate.getMonth() + 1}-${meetingDate.getDate()}`;
+              
+              if (!updatedMeetings[dateKey]) {
+                updatedMeetings[dateKey] = [];
+              }
+              
+              // Check if meeting already exists to avoid duplicates
+              const existingMeeting = updatedMeetings[dateKey].find(m => m.invitationId === meeting.invitationId);
+              if (!existingMeeting) {
+                updatedMeetings[dateKey].push({
+                  ...meeting,
+                  messageId: msg.id
+                });
+              }
+            }
+            
+            // Handle meeting responses (status updates)
+            if (content.type === 'meeting_response') {
+              const response = content.meeting;
+              
+              // Find and update the original meeting status
+              Object.keys(updatedMeetings).forEach(dateKey => {
+                updatedMeetings[dateKey] = updatedMeetings[dateKey].map(meeting => {
+                  if (meeting.invitationId === response.invitationId) {
+                    return { ...meeting, status: response.status };
+                  }
+                  return meeting;
+                }).filter(meeting => meeting.status === 'accepted'); // Only show accepted meetings
+              });
+            }
+          } catch (e) {
+            // Skip non-JSON messages
+          }
+        });
+        
+        setMeetings(updatedMeetings);
+      },
+      error: (error) => {
+        console.error('Real-time subscription error:', error);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [currentUser, meetings]);
+
+  // Build calendar days
   for (let i = 0; i < firstDay; i++) {
     calendarDays.push(null);
   }
   
-
   for (let day = 1; day <= daysInMonth; day++) {
     calendarDays.push(day);
   }
@@ -50,9 +186,9 @@ export default function Calendar() {
            year === today.getFullYear();
   };
   
-  const hasEvents = (day) => {
+  const hasMeetings = (day) => {
     const dateKey = `${year}-${month + 1}-${day}`;
-    return events[dateKey] && events[dateKey].length > 0;
+    return meetings[dateKey] && meetings[dateKey].length > 0;
   };
   
   const handleDayClick = (day) => {
@@ -65,15 +201,42 @@ export default function Calendar() {
     setSelectedDay(null);
   };
   
-  const getEventsForDay = (day) => {
+  const getMeetingsForDay = (day) => {
     const dateKey = `${year}-${month + 1}-${day}`;
-    return events[dateKey] || [];
+    return meetings[dateKey] || [];
   };
+
+  const formatMeetingTime = (dateTimeString) => {
+    const date = new Date(dateTimeString);
+    return date.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+  };
+
+  const formatMeetingDateTime = (dateTimeString) => {
+    const date = new Date(dateTimeString);
+    return date.toLocaleString('en-US', {
+      weekday: 'long',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+  };
+
+  if (loading) {
+    return (
+      <div className={styles.container}>
+        <div className={styles.loading}>Loading calendar...</div>
+      </div>
+    );
+  }
   
   return (
     <div className={styles.container}>
       <div className={styles.calendarWrapper}>
-        {/* header */}
+        {/* Header */}
         <div className={styles.header}>
           <button 
             className={styles.navButton}
@@ -94,7 +257,7 @@ export default function Calendar() {
           </button>
         </div>
         
-        {/* days of week header */}
+        {/* Days of week header */}
         <div className={styles.daysHeader}>
           {daysOfWeek.map(day => (
             <div key={day} className={styles.dayHeader}>
@@ -103,24 +266,31 @@ export default function Calendar() {
           ))}
         </div>
         
-        {/* calendar grid */}
+        {/* Calendar grid */}
         <div className={styles.calendarGrid}>
           {calendarDays.map((day, index) => (
             <div key={index}>
               {day && (
                 <button 
-                  className={`${styles.dayButton} ${isToday(day) ? styles.today : ''} ${hasEvents(day) ? styles.hasEvents : ''}`}
+                  className={`${styles.dayButton} ${isToday(day) ? styles.today : ''} ${hasMeetings(day) ? styles.hasMeetings : ''}`}
                   onClick={() => handleDayClick(day)}
                 >
                   {day}
-                  {hasEvents(day) && <div className={styles.eventDot}></div>}
+                  {hasMeetings(day) && (
+                    <div className={styles.eventIndicator}>
+                      <div className={styles.eventDot}></div>
+                      <span className={styles.eventCount}>
+                        {getMeetingsForDay(day).length}
+                      </span>
+                    </div>
+                  )}
                 </button>
               )}
             </div>
           ))}
         </div>
         
-        {/* the event thing */ }
+        {/* Meeting popup */}
         {showPopup && (
           <div className={styles.popupOverlay} onClick={closePopup}>
             <div className={styles.popup} onClick={(e) => e.stopPropagation()}>
@@ -133,18 +303,48 @@ export default function Calendar() {
                 </button>
               </div>
               <div className={styles.popupContent}>
-                {getEventsForDay(selectedDay).length > 0 ? (
-                  <div className={styles.eventsList}>
-                    <h4 className={styles.eventsTitle}>Events for this day:</h4>
-                    {getEventsForDay(selectedDay).map((event, index) => (
-                      <div key={index} className={styles.eventItem}>
-                        • {event}
+                {getMeetingsForDay(selectedDay).length > 0 ? (
+                  <div className={styles.meetingsList}>
+                    <h4 className={styles.meetingsTitle}>
+                      Meetings for this day ({getMeetingsForDay(selectedDay).length}):
+                    </h4>
+                    {getMeetingsForDay(selectedDay).map((meeting, index) => (
+                      <div key={index} className={styles.meetingItem}>
+                        <div className={styles.meetingItemHeader}>
+                          <span className={styles.meetingIcon}>📅</span>
+                          <span className={styles.meetingItemTitle}>{meeting.title}</span>
+                          <span className={styles.meetingTime}>
+                            {formatMeetingTime(meeting.dateTime)}
+                          </span>
+                        </div>
+                        {meeting.location && (
+                          <div className={styles.meetingLocation}>
+                            📍 {meeting.location}
+                          </div>
+                        )}
+                        {meeting.description && (
+                          <div className={styles.meetingDescription}>
+                            {meeting.description}
+                          </div>
+                        )}
+                        <div className={styles.meetingMeta}>
+                          <span className={styles.meetingCreator}>
+                            Created by: {meeting.createdBy}
+                          </span>
+                          <span className={`${styles.meetingStatus} ${styles.statusAccepted}`}>
+                            ✅ Accepted
+                          </span>
+                        </div>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <div className={styles.noEvents}>
-                    No events scheduled for this day.
+                  <div className={styles.noMeetings}>
+                    <div className={styles.noMeetingsIcon}>📅</div>
+                    <p>No meetings scheduled for this day.</p>
+                    <p className={styles.noMeetingsHint}>
+                      Accept meeting invites in your chats to see them here!
+                    </p>
                   </div>
                 )}
               </div>
@@ -155,3 +355,420 @@ export default function Calendar() {
     </div>
   );
 }
+
+.container {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 20px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+}
+
+.calendarWrapper {
+  max-width: 900px;
+  margin: 0 auto;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 20px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  backdrop-filter: blur(10px);
+}
+
+/* Header */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 30px 40px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.navButton {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: white;
+  font-size: 24px;
+  width: 45px;
+  height: 45px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+}
+
+.navButton:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: scale(1.1);
+}
+
+.monthTitle {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0;
+  text-align: center;
+  flex-grow: 1;
+}
+
+/* Days header */
+.daysHeader {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.dayHeader {
+  padding: 15px;
+  text-align: center;
+  font-weight: 600;
+  color: #64748b;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Calendar grid */
+.calendarGrid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  background: white;
+}
+
+.dayButton {
+  position: relative;
+  aspect-ratio: 1;
+  border: none;
+  background: white;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 500;
+  color: #374151;
+  transition: all 0.2s ease;
+  border: 1px solid #f1f5f9;
+  min-height: 80px;
+}
+
+.dayButton:hover {
+  background: #f8fafc;
+  transform: scale(1.02);
+}
+
+.today {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  font-weight: 700;
+}
+
+.today:hover {
+  background: linear-gradient(135deg, #5a67d8 0%, #6b46c1 100%);
+}
+
+.hasMeetings {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+  font-weight: 600;
+}
+
+.hasMeetings:hover {
+  background: linear-gradient(135deg, #059669 0%, #047857 100%);
+}
+
+/* Event indicators */
+.eventIndicator {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.eventDot {
+  width: 6px;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+}
+
+.eventCount {
+  font-size: 10px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.9);
+  min-width: 12px;
+  text-align: center;
+}
+
+/* Popup styles */
+.popupOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.popup {
+  background: white;
+  border-radius: 16px;
+  width: 90%;
+  max-width: 600px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 25px 50px rgba(0, 0, 0, 0.2);
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.popupHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px 30px;
+  border-bottom: 1px solid #e5e7eb;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 16px 16px 0 0;
+}
+
+.popupTitle {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.closeButton {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: white;
+  font-size: 24px;
+  width: 35px;
+  height: 35px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.closeButton:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: scale(1.1);
+}
+
+.popupContent {
+  padding: 30px;
+}
+
+/* Meetings list */
+.meetingsList {
+  space-y: 20px;
+}
+
+.meetingsTitle {
+  font-size: 18px;
+  font-weight: 600;
+  color: #374151;
+  margin: 0 0 20px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.meetingItem {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 16px;
+  transition: all 0.2s ease;
+}
+
+.meetingItem:hover {
+  border-color: #667eea;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.1);
+}
+
+.meetingItemHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.meetingIcon {
+  font-size: 18px;
+}
+
+.meetingItemTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1f2937;
+  flex-grow: 1;
+}
+
+.meetingTime {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.meetingLocation {
+  color: #6b7280;
+  font-size: 14px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.meetingDescription {
+  color: #4b5563;
+  font-size: 14px;
+  line-height: 1.5;
+  margin-bottom: 12px;
+  font-style: italic;
+}
+
+.meetingMeta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.meetingCreator {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.meetingStatus {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.statusAccepted {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+/* No meetings state */
+.noMeetings {
+  text-align: center;
+  padding: 40px 20px;
+  color: #6b7280;
+}
+
+.noMeetingsIcon {
+  font-size: 48px;
+  margin-bottom: 16px;
+  opacity: 0.5;
+}
+
+.noMeetings p {
+  margin: 8px 0;
+  font-size: 16px;
+}
+
+.noMeetingsHint {
+  font-size: 14px;
+  color: #9ca3af;
+  font-style: italic;
+}
+
+/* Loading state */
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 400px;
+  font-size: 18px;
+  color: white;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  backdrop-filter: blur(10px);
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .container {
+    padding: 10px;
+  }
+  
+  .calendarWrapper {
+    border-radius: 12px;
+  }
+  
+  .header {
+    padding: 20px;
+  }
+  
+  .monthTitle {
+    font-size: 22px;
+  }
+  
+  .navButton {
+    width: 40px;
+    height: 40px;
+    font-size: 20px;
+  }
+  
+  .dayButton {
+    min-height: 60px;
+    font-size: 14px;
+  }
+  
+  .popup {
+    width: 95%;
+    margin: 20px;
+  }
+  
+  .popupContent {
+    padding: 20px;
+  }
+  
+  .meetingItem {
+    padding: 16px;
+  }
+  
+  .meetingItemHeader {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  
+  .meetingTime {
+    align-self: flex-end;
+  }
+}
+

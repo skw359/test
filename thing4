@@ -1,436 +1,244 @@
+'use client';
+
 import React, { useState, useEffect, useRef } from 'react';
 import { getCurrentUser } from 'aws-amplify/auth';
 import { generateClient } from 'aws-amplify/api';
+import styles from '../styles/chat.module.css';
 
 const client = generateClient();
 
 function Chat() {
   const [currentUser, setCurrentUser] = useState('');
   const [recipientUsername, setRecipientUsername] = useState('');
+  const [chatName, setChatName] = useState('')
   const [recipientInput, setRecipientInput] = useState('');
   const [messages, setMessages] = useState([]);
   const [messageInput, setMessageInput] = useState('');
-  const [recentChats, setRecentChats] = useState([]);
-  const [lastMessages, setLastMessages] = useState({});
   const messagesEndRef = useRef(null);
   const [loading, setloading] = useState(false);
+  const [currChatId, setcurrChatId] = useState('');
+  const [chats, setChats] = useState([]);
 
-  const subscriptionRefs = useRef([]);
 
-  // get current authenticated user
   useEffect(() => {
     const fetchCurrentUser = async () => {
       try {
         const user = await getCurrentUser();
+        console.l
+        console.log(user)
         setCurrentUser(user.username || user.signInDetails?.loginId || '');
+        
       } catch (err) {
         console.log(err);
       }
     };
-
     fetchCurrentUser();
   }, []);
 
-  // get last msg for each recent chat
-  const fetchLastMessage = async (chatUser) => {
-    if (!currentUser || !chatUser) return null;
+  useEffect(() => { // load in chat rooms 
+        if (!currentUser) return;
+
+        const sub = client.models.ChatUser.observeQuery({
+            filter: { username: { eq: currentUser } },
+            sort: { field: 'timestamp', direction: 'desc' }
+        }).subscribe({
+            next: ({ items }) => {
+                console.log('ChatUser items updated:', items);
+
+                const enrich = async (items) => {
+
+                  const enrichedChats = await Promise.all(items.map(async (chatUser) => {
+                  try {
+                    const chatRecord = await client.models.Chat.get({ id: chatUser.chatId });
+                    console.log(chatRecord)
+                    return {
+                      ...chatUser,
+                      chatName: chatRecord?.data.name || 'Unnamed Chat',
+                    };
+                  } catch (error) {
+                    console.warn(`Failed to fetch chat for chatId: ${chatUser.chatId}`, error);
+                    return { ...chatUser, chatName: 'Unknown' };
+                  }
+                  }));
+                  console.log("new chats", enrichedChats)
+                  setChats(enrichedChats);  // or handle as needed
+                  setloading(false);
+
+
+                }
+                
+                enrich(items)    
+            },
+            error: (error) => {
+                console.warn('Subscription error:', error);
+                setloading(false);
+            }
+        });
+
+        return () => sub.unsubscribe();
+  }, [currentUser]);
+
+  useEffect(() => { // get all the messages associated with a chat
+      if (!currChatId) return;
+
+      const sub = client.models.ChatMessages.observeQuery({
+          filter: { chatId: { eq: currChatId } },
+          sort: { field: 'timestamp', direction: 'desc' }
+      }).subscribe({
+          next: ({ items }) => {
+              console.log("Chat messages updated: ",items)
+
+              const sortedMessages = [...items].sort((a, b) =>
+                  new Date(a.timestamp) - new Date(b.timestamp)
+                  );
+              setMessages(sortedMessages);
+          },
+              error: (error) => {
+              console.error("Error loading messages:", error);
+          }
+      });
+
+      return () => sub.unsubscribe();
+  }, [currChatId]);  
+
+
+    // members is a list of usernames in the chat
+  const createChat = async () => {
+      try{
+          if (!currentUser && !chatName && !recipientInput){
+              console.error("Could not get user")
+              return;
+          }
+          const newChat = await client.models.Chat.create({
+              createdAt: new Date().toISOString(),
+              name:chatName || 'New Chat'
+          });
+
+          const uniqueMembers = Array.from(new Set([...recipientInput, currentUser]));
+
+          for (const member of uniqueMembers) {
+              const newCU = await client.models.ChatUser.create({
+              username: member,
+              chatId: newChat.data.id,
+              timestamp: new Date().toISOString(),
+              });
+
+          }
+
+          
+          setRecipientInput('')
+          setChatName('')
+
+          setcurrChatId(newChat.data.chatId)
+      }catch(error){
+          console.error("Error creating chat:", error);
+      }
+  }
     
-    try {
-      // get sent messages (using owner index)
-      const { data: sentMessages } = await client.models.Message.list({
-        filter: {
-          and: [
-            { owner: { eq: currentUser } },
-            { receiver: { eq: chatUser } }
-          ]
-        },
-        limit: 1,
-        sortDirection: 'DESC'
-      });
-      
-      // get received messages (using receiver index)  
-      const { data: receivedMessages } = await client.models.Message.list({
-        filter: {
-          and: [
-            { owner: { eq: chatUser } },
-            { receiver: { eq: currentUser } }
-          ]
-        },
-        limit: 1,
-        sortDirection: 'DESC'
-      });
 
-      const allMessages = [...(sentMessages || []), ...(receivedMessages || [])];
+  const createMessage = async (content)=>{
+    try{
+        if (!currentUser ){
+            console.error("Could not get user")
+            return;
+        }
+        if (!currChatId){
+            console.error("could not get chatroom")
+        }
 
-      if (allMessages.length > 0) {
-        const lastMsg = allMessages.sort((a, b) => new Date(b.timestamp || b.createdAt || 0).getTime() - new Date(a.timestamp || a.createdAt || 0).getTime())[0];
-        return lastMsg;
-      }
-      return null;
-    } catch (error) {
-      console.error(error);
-      return null;
+        const newMessage = await client.models.ChatMessages.create({
+            chatId: currChatId,
+            sendername: currentUser,
+            content: content,
+            timestamp: new Date().toISOString(),
+        });
+
+        
+    }catch(error){
+        console.error("Error creating message:", error);
     }
-  };
 
-  // update last messages when recent chats change
-  useEffect(() => {
-    const updateLastMessages = async () => {
-      if (recentChats.length === 0 || !currentUser) return;
-      
-      const lastMsgPromises = recentChats.map(async (chat) => {
-        const lastMsg = await fetchLastMessage(chat);
-        return [chat, lastMsg];
-      });
-      
-      const results = await Promise.all(lastMsgPromises);
-      const newLastMessages = {};
-      results.forEach(([chat, msg]) => {
-        if (msg) newLastMessages[chat] = msg;
-      });
-      
-      setLastMessages(newLastMessages);
-    };
-
-    updateLastMessages();
-  }, [recentChats, currentUser]);
-
-  // Add refs at component level for message tracking
-  const sentMsgsRef = useRef([]);
-  const receivedMsgsRef = useRef([]);
-
-  // the main effect for getting and observing messages
-  useEffect(() => {
-    if (!currentUser || !recipientUsername) return;
-
-    setloading(true);
-    console.log('Setting up subscriptions for:', currentUser, recipientUsername);
-
-    // clean up any existing subscriptions
-    subscriptionRefs.current.forEach(cleanup => cleanup());
-    subscriptionRefs.current = [];
-
-    // Reset message refs for new chat
-    sentMsgsRef.current = [];
-    receivedMsgsRef.current = [];
-
-    const updateCombinedMessages = () => {
-      // Combine and sort messages
-      const allMessages = [...sentMsgsRef.current, ...receivedMsgsRef.current];
-      const sortedMessages = allMessages.sort((a, b) => 
-        new Date(a.timestamp || a.createdAt || 0).getTime() - new Date(b.timestamp || b.createdAt || 0).getTime()
-      );
-
-      console.log('Updating messages:', {
-        sent: sentMsgsRef.current.length,
-        received: receivedMsgsRef.current.length,
-        total: sortedMessages.length
-      });
-
-      setMessages(sortedMessages);
-      setloading(false);
-    };
-
-    // Track subscription status
-    let sentSubscriptionReady = false;
-    let receivedSubscriptionReady = false;
-
-    const checkAndUpdate = () => {
-      if (sentSubscriptionReady && receivedSubscriptionReady) {
-        updateCombinedMessages();
-      }
-    };
-
-    // observeQuery for sent messages
-    const sentMessagesObserver = client.models.Message.observeQuery({
-      filter: {
-        and: [
-          { owner: { eq: currentUser } },
-          { receiver: { eq: recipientUsername } }
-        ]
-      }
-    }).subscribe({
-      next: ({ items: sentMessages }) => {
-        console.log('Sent messages updated:', sentMessages.length);
-        sentMsgsRef.current = sentMessages || [];
-        sentSubscriptionReady = true;
-        checkAndUpdate();
-      },
-      error: (error) => {
-        console.error('Sent messages subscription error:', error);
-        sentSubscriptionReady = true; // Still mark as ready to prevent hanging
-        setloading(false);
-      }
-    });
-
-    // observeQuery for received messages
-    const receivedMessagesObserver = client.models.Message.observeQuery({
-      filter: {
-        and: [
-          { owner: { eq: recipientUsername } },
-          { receiver: { eq: currentUser } }
-        ]
-      }
-    }).subscribe({
-      next: ({ items: receivedMessages }) => {
-        console.log('Received messages updated:', receivedMessages.length);
-        receivedMsgsRef.current = receivedMessages || [];
-        receivedSubscriptionReady = true;
-        checkAndUpdate();
-      },
-      error: (error) => {
-        console.error('Received messages subscription error:', error);
-        receivedSubscriptionReady = true; // Still mark as ready to prevent hanging
-        setloading(false);
-      }
-    });
-
-    subscriptionRefs.current.push(
-      () => sentMessagesObserver.unsubscribe(),
-      () => receivedMessagesObserver.unsubscribe()
-    );
-
-    return () => {
-      console.log('Cleaning up subscriptions');
-      subscriptionRefs.current.forEach(cleanup => cleanup());
-      subscriptionRefs.current = [];
-    };
-  }, [currentUser, recipientUsername]);
-
-  // auto scroll to bottom when new messages arrive
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  // add new recipient to recent chats
-  useEffect(() => {
-    if (recipientUsername && !recentChats.includes(recipientUsername)) {
-      setRecentChats(prev => [recipientUsername, ...prev.slice(0, 9)]);
-    }
-  }, [recipientUsername, recentChats]);
-
-  // start new chat with a new user from the input field
-  const startChat = () => {
-    if (!recipientInput.trim()) return;
-    setRecipientUsername(recipientInput.trim());
-    setRecipientInput('');
-  };
-
-  // send msg 
-  const sendMessage = async () => {
-    if (!messageInput.trim() || !currentUser || !recipientUsername) {
-      console.log({ messageInput: messageInput.trim(), currentUser, recipientUsername });
-      return;
-    }
-    
-    const messageData = {
-      owner: currentUser,
-      receiver: recipientUsername,
-      content: messageInput.trim(),
-      timestamp: new Date().toISOString(),
-    };
-    
-    console.log('Sending message:', messageData);
-    
-    try {
-      const { data: newMessage, errors } = await client.models.Message.create(messageData);
-      
-      if (errors) {
-        console.error('Create message errors:', errors);
-        return;
-      }
-      
-      console.log('Message sent successfully:', newMessage);
-      setMessageInput('');
-      
-      // update last msgs for recent chats
-      if (newMessage) {
-        setLastMessages(prev => ({
-          ...prev,
-          [recipientUsername]: newMessage
-        }));
-      }
-    } catch (error) {
-      console.error('Send message error:', error);
-    }
-  };
-
+  }
   const formatTime = (timestamp) => {
     if (!timestamp) return '';
-    
     const date = new Date(timestamp);
     const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / (1000 * 60));
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-    if (diffMins < 1) return 'now';
-    if (diffMins < 60) return `${diffMins}m`;
-    if (diffHours < 24) return `${diffHours}h`;
-    if (diffDays < 7) return `${diffDays}d`;
+    const diff = now - date;
+    const mins = Math.floor(diff / 60000);
+    const hours = Math.floor(diff / 3600000);
+    const days = Math.floor(diff / 86400000);
+    if (mins < 1) return 'now';
+    if (mins < 60) return `${mins}m`;
+    if (hours < 24) return `${hours}h`;
+    if (days < 7) return `${days}d`;
     return date.toLocaleDateString();
   };
 
-  const getInitials = (name) => {
-    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
-  };
+  const getInitials = (name) => name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
 
-  if (!currentUser) return <div>Loading user...</div>;
+  if (!currentUser) return <div className={styles.loading}>Loading user...</div>;
 
   return (
-    <div style={{ 
-      display: 'flex', 
-      height: '100vh', 
-      backgroundColor: 'transparent',
-      color: '#fff',
-    }}>
-      {/* left sidebar recent chats */}
-      <div style={{ 
-        width: '350px', 
-        backgroundColor: 'transparent',
-        borderRight: '1px solid #2d3748',
-        display: 'flex',
-        flexDirection: 'column'
-      }}>
-        {/* header "CHats"*/}
-        <div style={{ 
-          padding: '20px', 
-          borderBottom: '1px solid #2d3748'
-        }}>
-          <h2 style={{ 
-            margin: 0, 
-            fontSize: '18px', 
-            fontWeight: '600',
-            marginBottom: '16px'
-          }}>
-            Chats
-          </h2>
-          
-          {/* new chat input */}
-          <div style={{ display: 'flex', gap: '8px' }}>
+    <div className={styles.chatContainer}>
+      <div className={styles.sidebar}>
+        <div className={styles.sidebarHeader}>
+          <h2 className={styles.title}>Chats</h2>
+          <input
+              type="text"
+              value={chatName}
+              onChange={e => setChatName(e.target.value)}
+              placeholder="Enter New Chat Name"
+              className={styles.input}
+            />
+          <div className={styles.newChatInput}>
             <input
               type="text"
               value={recipientInput}
               onChange={e => setRecipientInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && startChat()}
+              onKeyDown={e => e.key === 'Enter' && createChat()}
               placeholder="Start new chat..."
-              style={{ 
-                flex: 1,
-                padding: '8px 12px',
-                backgroundColor: '#2d3748',
-                border: '1px solid #4a5568',
-                borderRadius: '6px',
-                color: '#fff',
-                fontSize: '14px'
-              }}
+              className={styles.input}
             />
-            <button
-              onClick={startChat}
-              style={{ 
-                padding: '8px 12px',
-                backgroundColor: '#667eea',
-                border: 'none',
-                borderRadius: '6px',
-                color: '#fff',
-                fontSize: '14px',
-                cursor: 'pointer'
-              }}
-            >
-              +
-            </button>
+            
+            <button onClick={()=> {
+              const members = recipientInput // this is code for if there are multiple users, (not really supported now)
+                    .split(',')
+                    .map((name) => name.trim())
+                    .filter(Boolean);
+                if (members.length === 0) return;
+                createChat(members);
+
+            }} className={styles.addButton}>+</button>
           </div>
         </div>
-
-        {/* chat list */}
-        <div style={{ 
-          flex: 1, 
-          overflowY: 'auto'
-        }}>
-          {recentChats.length === 0 ? (
-            <div style={{ 
-              padding: '40px 20px', 
-              textAlign: 'center', 
-              color: '#718096' 
-            }}>
-              No recent chats
-            </div>
+        <div className={styles.chatList}>
+          {chats.length === 0 ? (
+            <div className={styles.noChats}>No recent chats</div>
           ) : (
-            recentChats.map(chat => {
-              const lastMsg = lastMessages[chat];
-              const isActive = chat === recipientUsername;
-              
+            chats.map(chat => {
+              //const lastMsg = lastMessages[chat];
+              const isActive = chat.username === recipientUsername;
               return (
                 <div
-                  key={chat}
-                  onClick={() => setRecipientUsername(chat)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    padding: '12px 20px',
-                    cursor: 'pointer',
-                    backgroundColor: isActive ? '#2d3748' : 'transparent',
-                    borderLeft: isActive ? '3px solid #667eea' : '3px solid transparent',
-                  }}
-                  onMouseEnter={e => {
-                    if (!isActive) e.currentTarget.style.backgroundColor = '#2a2d3a';
-                  }}
-                  onMouseLeave={e => {
-                    if (!isActive) e.currentTarget.style.backgroundColor = 'transparent';
-                  }}
+                  key={chat.chatId}
+                  className={`${styles.chatItem} ${isActive ? styles.activeChat : ''}`}
+                  onClick={() => setcurrChatId(chat.chatId)}
                 >
-                  {/* avatar */}
-                  <div style={{
-                    width: '40px',
-                    height: '40px',
-                    borderRadius: '50%',
-                    backgroundColor: '#667eea',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginRight: '12px',
-                    fontSize: '14px',
-                    fontWeight: '600'
-                  }}>
-                    {getInitials(chat)}
-                  </div>
-                  
-                  {/* chat info (the user's name in the left side bar)*/}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ 
-                      display: 'flex', 
-                      justifyContent: 'space-between', 
-                      alignItems: 'center',
-                      marginBottom: '4px'
-                    }}>
-                      <span style={{
-                        fontSize: '15px',
-                        fontWeight: '500',
-                        color: '#fff'
-                      }}>
-                        {chat}
-                      </span>
-                      {lastMsg && (
-                        <span style={{
-                          fontSize: '12px',
-                          color: '#718096'
-                        }}>
-                          {formatTime(lastMsg.timestamp)}
-                        </span>
-                      )}
+                  <div className={styles.avatar}>{getInitials(chat.chatId)}</div>
+                  <div className={styles.chatInfo}>
+                    
+                    <div className={styles.chatTop}>
+                     
+                     <span className={styles.chatName}>{chat.chatName}</span>
+                      {/*lastMsg && <span className={styles.chatTime}>{formatTime(lastMsg.timestamp)}</span> */}
                     </div>
-                    {lastMsg && (
-                      <div style={{
-                        fontSize: '13px',
-                        color: '#718096',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap'
-                      }}>
+                    {/*lastMsg && (
+                      <div className={styles.chatPreview}>
                         {lastMsg.owner === currentUser ? 'You: ' : ''}
                         {lastMsg.content}
                       </div>
-                    )}
+                    )*/} 
+      
                   </div>
                 </div>
               );
@@ -438,221 +246,57 @@ function Chat() {
           )}
         </div>
       </div>
-
-      {/* right side, chat interface */}
-      <div style={{ 
-        flex: 1, 
-        display: 'flex', 
-        flexDirection: 'column',
-      }}>
-        {!recipientUsername ? (
-          /* welcome screen */
-          <div style={{
-            flex: 1,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexDirection: 'column',
-            color: '#718096'
-          }}>
-            <div style={{
-              fontSize: '48px',
-              marginBottom: '16px'
-            }}>💬</div>
-            <h3 style={{ 
-              margin: 0, 
-              fontSize: '24px', 
-              fontWeight: '600',
-              marginBottom: '8px',
-              color: '#fff'
-            }}>
-              Welcome to Velocity Messaging
-            </h3>
-            <p style={{ 
-              margin: 0, 
-              fontSize: '16px',
-              textAlign: 'center'
-            }}>
-              Select a chat from the sidebar or start a new conversation.
-            </p>
+      <div className={styles.chatWindow}>
+        {!currChatId ? (
+          <div className={styles.welcome}>
+            <h3>Welcome to Velocity Messaging</h3>
+            <p>Select a chat from the sidebar or start a new conversation.</p>
           </div>
         ) : (
-          /* active chat */
           <>
-            {/* chat header (of the current user), right side */}
-            <div style={{ 
-              padding: '16px 24px', 
-              backgroundColor: '#1a1d29',
-              borderBottom: '1px solid #2d3748',
-              display: 'flex', 
-              alignItems: 'center',
-              gap: '12px'
-            }}>
-              <div style={{
-                width: '36px',
-                height: '36px',
-                borderRadius: '50%',
-                backgroundColor: '#667eea',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '14px',
-                fontWeight: '600'
-              }}>
-                {getInitials(recipientUsername)}
-              </div>
-              <div>
-                <h3 style={{ 
-                  margin: 0, 
-                  fontSize: '16px', 
-                  fontWeight: '600',
-                  color: '#fff'
-                }}>
-                  {recipientUsername}
-                </h3>
-                <div style={{
-                  fontSize: '12px',
-                  color: '#718096'
-                }}>
-                  
-                </div>
-              </div>
+            <div className={styles.chatHeader}>
+              <div className={styles.avatar}>{getInitials(recipientUsername)}</div>
+              <h3>{recipientUsername}</h3>
             </div>
-
-            {/* msgs */}
-            <div style={{ 
-              flex: 1, 
-              padding: '16px 24px', 
-              overflowY: 'auto',
-              display: 'flex',
-              flexDirection: 'column'
-            }}>
+            <div className={styles.messages}>
               {loading ? (
-                <div style={{ 
-                  textAlign: 'center', 
-                  color: '#718096', 
-                  marginTop: '50px',
-                  fontSize: '14px'
-                }}>
-                  Loading messages...
-                </div>
+                <div className={styles.loading}>Loading messages...</div>
               ) : messages.length === 0 ? (
-                <div style={{ 
-                  textAlign: 'center', 
-                  color: '#718096', 
-                  marginTop: '50px',
-                  fontSize: '14px'
-                }}>
-                  No messages yet. Start the conversation!
-                </div>
+                <div className={styles.loading}>No messages yet. Start the conversation!</div>
               ) : (
                 messages.map((msg) => (
-                  <div 
-                    key={msg.id} 
-                    style={{
-                      display: 'flex',
-                      justifyContent: msg.owner === currentUser ? 'flex-end' : 'flex-start',
-                      marginBottom: '12px'
-                    }}
+                  <div
+                    key={msg.id}
+                    className={`${styles.messageWrapper} ${msg.sendername === currentUser ? styles.messageSent : styles.messageReceived}`}
                   >
-                    <div style={{
-                      maxWidth: '70%',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: msg.owner === currentUser ? 'flex-end' : 'flex-start'
-                    }}>
-                      <div
-                        style={{
-                          padding: '12px 16px',
-                          backgroundColor: msg.owner === currentUser ? '#667eea' : '#2d3748',
-                          borderRadius: '18px',
-                          borderBottomRightRadius: msg.owner === currentUser ? '4px' : '18px',
-                          borderBottomLeftRadius: msg.owner === currentUser ? '18px' : '4px',
-                          color: '#fff',
-                          fontSize: '14px',
-                          lineHeight: '1.4',
-                          wordWrap: 'break-word'
-                        }}
-                      >
-                        {msg.content}
-                      </div>
-                      <div style={{ 
-                        fontSize: '11px', 
-                        color: '#718096', 
-                        marginTop: '4px',
-                        marginLeft: msg.owner === currentUser ? '0' : '12px',
-                        marginRight: msg.owner === currentUser ? '12px' : '0'
-                      }}>
-                        {new Date(msg.timestamp || msg.createdAt || '').toLocaleTimeString([], {
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}
-                      </div>
+                    <div className={styles.messageContent}>{msg.content}</div>
+                    <div className={styles.messageTime}>
+                      {new Date(msg.timestamp || msg.createdAt || '').toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
                     </div>
                   </div>
                 ))
               )}
               <div ref={messagesEndRef}></div>
             </div>
-
-            {/* msg input in teh chat */}
-            <div style={{ 
-              padding: '16px 24px',
-              backgroundColor: 'transparent',
-              
-            }}>
-              <div style={{ 
-                display: 'flex', 
-                gap: '20px',
-                alignItems: 'flex-end'
-              }}>
-                <input
-                  value={messageInput}
-                  onChange={e => setMessageInput(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-                  placeholder="Write a message..."
-                  disabled={loading}
-                  style={{ 
-                    flex: 1,
-                    padding: '12px 16px',
-                    backgroundColor: 'transparent',
-                    border: '1px solid rgb(49, 56, 69)',
-                    borderRadius: '15px',
-                    color: '#fff',
-                    fontSize: '14px',
-                    resize: 'none',
-                    outline: 'none',
-                    opacity: loading ? 0.6 : 1
-                  }}
-                />
-                <button
-                  onClick={sendMessage}
-                  disabled={loading || !messageInput.trim()}
-                  style={{ 
-                    padding: '12px 20px',
-                    backgroundColor: (loading || !messageInput.trim()) ? '#4a5568' : '#667eea',
-                    border: 'none',
-                    borderRadius: '20px',
-                    color: '#fff',
-                    fontSize: '14px',
-                    fontWeight: '500',
-                    cursor: (loading || !messageInput.trim()) ? 'not-allowed' : 'pointer',
-                    opacity: (loading || !messageInput.trim()) ? 0.6 : 1
-                  }}
-                  onMouseEnter={e => {
-                    if (!loading && messageInput.trim()) {
-                      e.currentTarget.style.backgroundColor = '#5a67d8';
-                    }
-                  }}
-                  onMouseLeave={e => {
-                    if (!loading && messageInput.trim()) {
-                      e.currentTarget.style.backgroundColor = '#667eea';
-                    }
-                  }}
-                >
-                  Send
-                </button>
-              </div>
+            <div className={styles.messageInputWrapper}>
+              <input
+                value={messageInput}
+                onChange={e => setMessageInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && createMessage(messageInput)}
+                placeholder="Write a message..."
+                disabled={loading}
+                className={styles.messageInput}
+              />
+              <button
+                onClick={() => createMessage(messageInput)}
+                disabled={loading || !messageInput.trim()}
+                className={styles.sendButton}
+              >
+                Send
+              </button>
             </div>
           </>
         )}

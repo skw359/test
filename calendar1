@@ -1,0 +1,157 @@
+import { useState } from 'react';
+import styles from '../styles/calendar.module.css';
+
+export default function Calendar() {
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [selectedDay, setSelectedDay] = useState(null);
+  const [showPopup, setShowPopup] = useState(false);
+  
+  const today = new Date();
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth();
+  
+  const events = {
+    '2025-6-5': ['Meeting with Person at 10 AM, Location: 3672 AnaVation Dr.', 'Meetup with John at X Location @ 7 PM']
+  };
+  
+  const monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+  
+  const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  
+  const calendarDays = [];
+  
+
+  for (let i = 0; i < firstDay; i++) {
+    calendarDays.push(null);
+  }
+  
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    calendarDays.push(day);
+  }
+  
+  const goToTheLastMonth = () => {
+    setCurrentDate(new Date(year, month - 1, 1));
+  };
+  
+  const goToTheNextMonth = () => {
+    setCurrentDate(new Date(year, month + 1, 1));
+  };
+  
+  const isToday = (day) => {
+    return day === today.getDate() && 
+           month === today.getMonth() && 
+           year === today.getFullYear();
+  };
+  
+  const hasEvents = (day) => {
+    const dateKey = `${year}-${month + 1}-${day}`;
+    return events[dateKey] && events[dateKey].length > 0;
+  };
+  
+  const handleDayClick = (day) => {
+    setSelectedDay(day);
+    setShowPopup(true);
+  };
+  
+  const closePopup = () => {
+    setShowPopup(false);
+    setSelectedDay(null);
+  };
+  
+  const getEventsForDay = (day) => {
+    const dateKey = `${year}-${month + 1}-${day}`;
+    return events[dateKey] || [];
+  };
+  
+  return (
+    <div className={styles.container}>
+      <div className={styles.calendarWrapper}>
+        {/* header */}
+        <div className={styles.header}>
+          <button 
+            className={styles.navButton}
+            onClick={goToTheLastMonth}
+          >
+            &#8249;
+          </button>
+          
+          <h1 className={styles.monthTitle}>
+            {monthNames[month]} {year}
+          </h1>
+          
+          <button 
+            className={styles.navButton}
+            onClick={goToTheNextMonth}
+          >
+            &#8250;
+          </button>
+        </div>
+        
+        {/* days of week header */}
+        <div className={styles.daysHeader}>
+          {daysOfWeek.map(day => (
+            <div key={day} className={styles.dayHeader}>
+              {day}
+            </div>
+          ))}
+        </div>
+        
+        {/* calendar grid */}
+        <div className={styles.calendarGrid}>
+          {calendarDays.map((day, index) => (
+            <div key={index}>
+              {day && (
+                <button 
+                  className={`${styles.dayButton} ${isToday(day) ? styles.today : ''} ${hasEvents(day) ? styles.hasEvents : ''}`}
+                  onClick={() => handleDayClick(day)}
+                >
+                  {day}
+                  {hasEvents(day) && <div className={styles.eventDot}></div>}
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+        
+        {/* the event thing */ }
+        {showPopup && (
+          <div className={styles.popupOverlay} onClick={closePopup}>
+            <div className={styles.popup} onClick={(e) => e.stopPropagation()}>
+              <div className={styles.popupHeader}>
+                <h3 className={styles.popupTitle}>
+                  {monthNames[month]} {selectedDay}, {year}
+                </h3>
+                <button className={styles.closeButton} onClick={closePopup}>
+                  ×
+                </button>
+              </div>
+              <div className={styles.popupContent}>
+                {getEventsForDay(selectedDay).length > 0 ? (
+                  <div className={styles.eventsList}>
+                    <h4 className={styles.eventsTitle}>Events for this day:</h4>
+                    {getEventsForDay(selectedDay).map((event, index) => (
+                      <div key={index} className={styles.eventItem}>
+                        • {event}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className={styles.noEvents}>
+                    No events scheduled for this day.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

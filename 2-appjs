@@ -29,3 +29,61 @@ export default function App({ Component, pageProps }) {
     </Layout>
   );
 }
+
+
+ ✓ Compiled /chat in 2.2s
+Client: {
+  graphql: [Function: graphql],
+  cancel: [Function (anonymous)],
+  isCancelError: [Function: isCancelError],
+  models: {
+    Message: {
+      create: [Function: get],
+      get: [Function: get],
+      update: [Function: get],
+      delete: [Function: get],
+      list: [Function: list],
+      '': [Function: get],
+      onCreate: [Function: subscription],
+      onUpdate: [Function: subscription],
+      onDelete: [Function: subscription],
+      observeQuery: [Function: observeQuery],
+      listMessageByOwnerAndTimestamp: [Function: indexQuery],
+      listMessageByReceiverAndTimestamp: [Function: indexQuery]
+    }
+  },
+  enums: {},
+  queries: {},
+  mutations: {},
+  subscriptions: {},
+  conversations: {},
+  generations: {},
+  [Symbol(amplify)]: AmplifyClass {
+    oAuthListener: undefined,
+    resourcesConfig: { Auth: [Object], Geo: [Object], API: [Object] },
+    libraryOptions: { Auth: [Object] },
+    Auth: AuthClass { authConfig: [Object], authOptions: [Object] }
+  },
+  [Symbol(authMode)]: undefined,
+  [Symbol(authToken)]: undefined,
+  [Symbol(apiKey)]: undefined,
+  [Symbol(endpoint)]: undefined,
+  [Symbol(headers)]: undefined
+}
+Client models: {
+  Message: {
+    create: [Function: get],
+    get: [Function: get],
+    update: [Function: get],
+    delete: [Function: get],
+    list: [Function: list],
+    '': [Function: get],
+    onCreate: [Function: subscription],
+    onUpdate: [Function: subscription],
+    onDelete: [Function: subscription],
+    observeQuery: [Function: observeQuery],
+    listMessageByOwnerAndTimestamp: [Function: indexQuery],
+    listMessageByReceiverAndTimestamp: [Function: indexQuery]
+  }
+}
+Available models: [ 'Message' ]

@@ -13,32 +13,26 @@ Amplify.configure(outputs);
 
 export default function App({ Component, pageProps }) {
   const router = useRouter();
-  const [isLoading, setIsLoading] = useState(false);
+  const [isTransitioning, setIsTransitioning] = useState(false);
 
   useEffect(() => {
     const handleRouteChangeStart = () => {
-      setIsLoading(true);
+      setIsTransitioning(true);
     };
 
     const handleRouteChangeComplete = () => {
-      // Wait for fade out, then fade in
-      setTimeout(() => {
-        setIsLoading(false);
-      }, 250); // Half of the transition time
-    };
-
-    const handleRouteChangeError = () => {
-      setIsLoading(false);
+      // New page loads hidden, then fades in immediately
+      setIsTransitioning(false);
     };
 
     router.events.on('routeChangeStart', handleRouteChangeStart);
     router.events.on('routeChangeComplete', handleRouteChangeComplete);
-    router.events.on('routeChangeError', handleRouteChangeError);
+    router.events.on('routeChangeError', handleRouteChangeComplete);
 
     return () => {
       router.events.off('routeChangeStart', handleRouteChangeStart);
       router.events.off('routeChangeComplete', handleRouteChangeComplete);
-      router.events.off('routeChangeError', handleRouteChangeError);
+      router.events.off('routeChangeError', handleRouteChangeComplete);
     };
   }, [router]);
 
@@ -53,7 +47,7 @@ export default function App({ Component, pageProps }) {
             </nav>
             <div className={styles.pageContent}>
               <div 
-                className={`${styles.pageTransition} ${isLoading ? styles.fadeOut : styles.fadeIn}`}
+                className={`${styles.pageTransition} ${isTransitioning ? styles.fadeOut : styles.fadeIn}`}
               >
                 <Component {...pageProps} /> 
               </div>

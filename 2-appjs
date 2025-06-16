@@ -6,27 +6,11 @@ import { Amplify } from "aws-amplify";
 import Layout from '../../components/shared/layout';
 import ProfileButton from '../../components/shared/ProfileButton';
 import styles from '../styles/_app.module.css';
-import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/router';
+import React, { useState, useEffect} from 'react';
 
 Amplify.configure(outputs);
 
 export default function App({ Component, pageProps }) {
-  const router = useRouter();
-  const [isVisible, setIsVisible] = useState(false);
-
-  useEffect(() => {
-    // Hide page immediately when route changes
-    setIsVisible(false);
-    
-    // Fade in after a short delay
-    const timer = setTimeout(() => {
-      setIsVisible(true);
-    }, 250);
-    
-    return () => clearTimeout(timer);
-  }, [router.asPath]); // Trigger on every route change
-
   return (
     <Layout>
       <Authenticator>
@@ -37,12 +21,7 @@ export default function App({ Component, pageProps }) {
               <ProfileButton signOut={signOut} />
             </nav>
             <div className={styles.pageContent}>
-              <div 
-                className={styles.pageTransition}
-                style={{ opacity: isVisible ? 1 : 0 }}
-              >
-                <Component {...pageProps} /> 
-              </div>
+              <Component {...pageProps} /> 
             </div>
           </>
         )}

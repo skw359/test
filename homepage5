@@ -1,0 +1,50 @@
+import styles from "../styles/homepage.module.css";
+import Link from "next/link";
+import Sidebar from '../../components/shared/SidebarWrapper';
+import Layout from '../../components/shared/layout';
+import { getCurrentUser } from 'aws-amplify/auth';
+import React, { useState, useEffect } from 'react';
+
+export default function HomePage() {
+    const [currentUser, setCurrentUser] = useState('');
+
+    useEffect(() => {
+        const fetchCurrentUser = async () => {
+            try {
+                const user = await getCurrentUser(); 
+                setCurrentUser(user.username || user.signInDetails?.loginId || '');
+            } catch (err) {
+                console.log(err)
+            }
+        };
+    
+        fetchCurrentUser();
+    }, []);
+
+    const items = [
+        { title: "Upcoming Calendar/Events?", content: "[insert upcoming events]", path: "/calendar"},
+        { title: "Recent Messages", content: "[insert messages from chat feature]", path: "/chat"},
+        { title: "User/Setting Notifications", content: "[insert settings information]", path: "/settings"},
+    ];
+
+    return (
+        <div className={styles['home-test']}>
+            <div className={styles["welcome-header"]}>
+                <h2>Welcome, {currentUser}</h2>
+            </div>
+            <div className={styles["grid-container"]}>
+                {items.map((item, index) => (
+                    <Link href={item.path} key={index}>
+                        <div className={styles["grid-item"]}>
+                            <h3 className={styles["grid-item-title"]}>{item.title}</h3>
+                            <hr className={styles["grid-divider"]} />
+                            <p className={styles["grid-item-content"]}>
+                                {"\n" + item.content}
+                            </p>
+                        </div>
+                    </Link>
+                ))}
+            </div>
+        </div>
+    );
+}

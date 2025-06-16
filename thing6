@@ -1,0 +1,73 @@
+// Key fixes needed in your Chat component:
+
+// 1. Fix the createChat function:
+const createChat = async () => {
+    try{
+        if (!currentUser || !chatName || !recipientInput){
+            console.error("Missing required fields");
+            return;
+        }
+        const newChat = await client.models.Chat.create({
+            createdAt: new Date().toISOString(),
+            name: chatName || 'New Chat'
+        });
+
+        // Split recipients properly
+        const recipients = recipientInput.split(',').map(name => name.trim()).filter(Boolean);
+        const uniqueMembers = Array.from(new Set([...recipients, currentUser]));
+
+        for (const member of uniqueMembers) {
+            await client.models.ChatUser.create({
+                username: member,
+                chatId: newChat.data.id, // ✅ Fixed: use .id not .chatId
+                timestamp: new Date().toISOString(),
+            });
+        }
+
+        setRecipientInput('');
+        setChatName('');
+        setcurrChatId(newChat.data.id); // ✅ Fixed: use .id not .chatId
+    } catch(error) {
+        console.error("Error creating chat:", error);
+    }
+}
+
+// 2. Fix the createMessage function:
+const createMessage = async (content) => {
+    try {
+        if (!currentUser) {
+            console.error("Could not get user");
+            return;
+        }
+        if (!currChatId) {
+            console.error("Could not get chatroom");
+            return;
+        }
+        if (!content.trim()) {
+            return; // Don't send empty messages
+        }
+
+        await client.models.ChatMessages.create({
+            chatId: currChatId,
+            sendername: currentUser,
+            content: content,
+            timestamp: new Date().toISOString(),
+        });
+
+        setMessageInput(''); // ✅ Clear input after sending
+        
+    } catch(error) {
+        console.error("Error creating message:", error);
+    }
+}
+
+// 3. Add auto-scroll effect (add this useEffect):
+useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+}, [messages]);
+
+// 4. Fix chat header to show correct chat name:
+// Replace this line in your JSX:
+// <h3>{recipientUsername}</h3>
+// With:
+// <h3>{chats.find(chat => chat.chatId === currChatId)?.chatName || 'Chat'}</h3>

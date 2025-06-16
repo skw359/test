@@ -1,0 +1,581 @@
+.chatContainer {
+  display: flex;
+  height: calc(100vh - 70px);
+  background-color: transparent;
+  color: #fff;
+}
+
+/* Sidebar */
+.sidebar {
+  width: 320px;
+  background-color: 'transparent';
+  border-right: 1px solid #2d3748;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebarHeader {
+  padding: 16px;
+  border-bottom: 1px solid #2d3748;
+}
+
+.title {
+  font-size: 20px;
+  font-weight: bold;
+  margin-bottom: 12px;
+}
+
+.newChatInput {
+  display: flex;
+  gap: 8px;
+}
+
+.input {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #4a5568;
+  background-color: #2d3748;
+  color: #fff;
+  font-size: 14px;
+}
+
+.addButton {
+  padding: 8px 12px;
+  background-color: #4c51bf;
+  border: none;
+  border-radius: 8px;
+  color: white;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.chatList {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.chatItem {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: background-color 0.2s ease-in-out;
+}
+
+.chatItem:hover {
+  background-color: #2a2d3a;
+}
+
+.activeChat {
+  background-color: #2d3748;
+}
+
+.avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background-color: #4c51bf;
+  color: #fff;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 12px;
+  font-size: 14px;
+}
+
+.chatInfo {
+  flex: 1;
+  overflow: hidden;
+}
+
+.chatTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.chatName {
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.chatTime {
+  font-size: 12px;
+  color: #a0aec0;
+}
+
+.chatPreview {
+  font-size: 13px;
+  color: #cbd5e0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.noChats {
+  text-align: center;
+  padding: 40px 20px;
+  color: #718096;
+}
+
+/* Chat window on the right side */
+.chatWindow {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background-color: 'transparent';
+}
+
+.chatHeader {
+  display: flex;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #2d3748;
+  background-color: 'transparent';
+}
+
+.chatHeader .avatar {
+  margin-right: 12px;
+}
+
+.chatHeader h3 {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+/* Messages */
+.messages {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.messageWrapper {
+  display: flex;
+  margin-bottom: 12px;
+}
+
+.messageSent {
+  justify-content: flex-end;
+}
+
+.messageReceived {
+  justify-content: flex-start;
+}
+
+.messageContent {
+  background-color: #4c51bf;
+  color: white;
+  padding: 10px 14px;
+  border-radius: 16px;
+  max-width: 70%;
+  word-wrap: break-word;
+  font-size: 14px;
+}
+
+.messageReceived .messageContent {
+  background-color: #2d3748;
+}
+
+.messageTime {
+  font-size: 11px;
+  color: #a0aec0;
+  margin-top: 4px;
+  margin-left: 8px;
+  align-self: flex-end;
+}
+
+/* Meeting Cards */
+.meetingCard {
+  background-color: #2d3748;
+  border: 1px solid #4a5568;
+  border-radius: 12px;
+  padding: 16px;
+  max-width: 400px;
+  margin: 4px 0;
+}
+
+.meetingCardSent {
+  background-color: #4c51bf;
+  border-color: #667eea;
+}
+
+.meetingCardReceived {
+  background-color: #2d3748;
+  border-color: #4a5568;
+}
+
+.meetingHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.meetingIcon {
+  font-size: 16px;
+}
+
+.meetingTitle {
+  font-weight: 600;
+  font-size: 15px;
+  flex: 1;
+}
+
+.meetingStatus {
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.statusPending {
+  background-color: #f6ad55;
+  color: #744210;
+}
+
+.statusAccepted {
+  background-color: #68d391;
+  color: #22543d;
+}
+
+.statusDeclined {
+  background-color: #fc8181;
+  color: #742a2a;
+}
+
+.meetingDetails {
+  margin-bottom: 12px;
+}
+
+.meetingDateTime {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: #cbd5e0;
+}
+
+.meetingLocation {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: #cbd5e0;
+}
+
+.meetingDescription {
+  font-size: 13px;
+  color: #a0aec0;
+  margin-top: 8px;
+  line-height: 1.4;
+}
+
+.meetingActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.meetingButton {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.acceptButton {
+  background-color: #48bb78;
+  color: white;
+}
+
+.acceptButton:hover {
+  background-color: #38a169;
+}
+
+.declineButton {
+  background-color: #e53e3e;
+  color: white;
+}
+
+.declineButton:hover {
+  background-color: #c53030;
+}
+
+.meetingResponse {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-style: italic;
+  background-color: #2d3748 !important;
+}
+
+.meetingResponseIcon {
+  font-size: 14px;
+}
+
+/* Input section */
+.messageInputWrapper {
+  display: flex;
+  padding: 16px 20px;
+  gap: 12px;
+  align-items: center;
+}
+
+.plusButton {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background-color: #4c51bf;
+  color: white;
+  border: none;
+  font-size: 18px;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+}
+
+.plusButton:hover {
+  background-color: #667eea;
+}
+
+.messageInput {
+  flex: 1;
+  padding: 10px 14px;
+  border-radius: 16px;
+  background-color: transparent;
+  border-radius: '10px';
+  border: 1px solid #2a2d3a;
+  color: white;
+  font-size: 14px;
+  outline: none;
+}
+
+.sendButton {
+  background-color: #667eea;
+  color: white;
+  padding: 10px 18px;
+  border: none;
+  border-radius: 16px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.sendButton:disabled {
+  background-color: #4a5568;
+  cursor: not-allowed;
+}
+
+/* Meeting Modal */
+.modalOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modalContent {
+  background-color: #1a202c;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 500px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+}
+
+.modalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  border-bottom: 1px solid #2d3748;
+}
+
+.modalHeader h3 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.closeButton {
+  background: none;
+  border: none;
+  color: #a0aec0;
+  font-size: 24px;
+  cursor: pointer;
+  padding: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+.closeButton:hover {
+  background-color: #2d3748;
+  color: #fff;
+}
+
+.modalBody {
+  padding: 24px;
+}
+
+.formGroup {
+  margin-bottom: 20px;
+}
+
+.formGroup label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 500;
+  font-size: 14px;
+  color: #e2e8f0;
+}
+
+.formInput {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #4a5568;
+  background-color: #2d3748;
+  color: #fff;
+  font-size: 14px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.formInput:focus {
+  border-color: #667eea;
+  box-shadow: 0 0 0 1px #667eea;
+}
+
+.formTextarea {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #4a5568;
+  background-color: #2d3748;
+  color: #fff;
+  font-size: 14px;
+  outline: none;
+  resize: vertical;
+  min-height: 80px;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.formTextarea:focus {
+  border-color: #667eea;
+  box-shadow: 0 0 0 1px #667eea;
+}
+
+.modalFooter {
+  padding: 16px 24px;
+  border-top: 1px solid #2d3748;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.cancelButton {
+  padding: 10px 20px;
+  border: 1px solid #4a5568;
+  background-color: transparent;
+  color: #a0aec0;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.cancelButton:hover {
+  background-color: #2d3748;
+  color: #fff;
+}
+
+.createButton {
+  padding: 10px 20px;
+  background-color: #4c51bf;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background-color 0.2s;
+}
+
+.createButton:hover {
+  background-color: #667eea;
+}
+
+/* Utility */
+.welcome {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  color: #718096;
+  font-size: 16px;
+}
+
+.loading {
+  text-align: center;
+  color: #a0aec0;
+  font-size: 14px;
+  margin-top: 20px;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .chatContainer {
+    flex-direction: column;
+  }
+  
+  .sidebar {
+    width: 100%;
+    height: 200px;
+  }
+  
+  .modalContent {
+    width: 95%;
+    margin: 20px;
+  }
+  
+  .meetingCard {
+    max-width: 100%;
+  }
+  
+  .messageInputWrapper {
+    padding: 12px 16px;
+    gap: 8px;
+  }
+  
+  .plusButton {
+    width: 32px;
+    height: 32px;
+    font-size: 16px;
+  }
+}

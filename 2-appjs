@@ -16,44 +16,21 @@ export default function App({ Component, pageProps }) {
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [displayedRoute, setDisplayedRoute] = useState(router.asPath);
 
+  // Force transitions on every route change
   useEffect(() => {
-    const handleRouteChangeStart = (url) => {
-      if (url !== router.asPath) {
-        setIsTransitioning(true);
-      }
-    };
-
-    const handleRouteChangeComplete = (url) => {
-      setDisplayedRoute(url);
-      setIsTransitioning(false);
-    };
-
-    const handleRouteChangeError = () => {
-      setIsTransitioning(false);
-    };
-
-    router.events.on('routeChangeStart', handleRouteChangeStart);
-    router.events.on('routeChangeComplete', handleRouteChangeComplete);
-    router.events.on('routeChangeError', handleRouteChangeError);
-
-    return () => {
-      router.events.off('routeChangeStart', handleRouteChangeStart);
-      router.events.off('routeChangeComplete', handleRouteChangeComplete);
-      router.events.off('routeChangeError', handleRouteChangeError);
-    };
-  }, [router]);
-
-  // Also trigger transition when route changes without events firing
-  useEffect(() => {
-    if (router.asPath !== displayedRoute && !isTransitioning) {
+    const currentPath = router.asPath;
+    
+    if (currentPath !== displayedRoute) {
       setIsTransitioning(true);
+      
       const timer = setTimeout(() => {
-        setDisplayedRoute(router.asPath);
+        setDisplayedRoute(currentPath);
         setIsTransitioning(false);
       }, 250);
+      
       return () => clearTimeout(timer);
     }
-  }, [router.asPath, displayedRoute, isTransitioning]);
+  }, [router.asPath, displayedRoute]);
 
   return (
     <Layout>
@@ -66,7 +43,6 @@ export default function App({ Component, pageProps }) {
             </nav>
             <div className={styles.pageContent}>
               <div 
-                key={displayedRoute}
                 className={`${styles.pageTransition} ${isTransitioning ? styles.fadeOut : styles.fadeIn}`}
               >
                 <Component {...pageProps} /> 

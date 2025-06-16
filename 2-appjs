@@ -13,27 +13,19 @@ Amplify.configure(outputs);
 
 export default function App({ Component, pageProps }) {
   const router = useRouter();
-  const [isTransitioning, setIsTransitioning] = useState(false);
-  const [displayedRoute, setDisplayedRoute] = useState(router.asPath);
+  const [isVisible, setIsVisible] = useState(false);
 
-  // Force transitions on every route change
   useEffect(() => {
-    const currentPath = router.asPath;
+    // Hide page immediately when route changes
+    setIsVisible(false);
     
-    if (currentPath !== displayedRoute) {
-      setIsTransitioning(true);
-      
-      const timer = setTimeout(() => {
-        setDisplayedRoute(currentPath);
-        // Small delay to ensure new content renders before fade-in
-        setTimeout(() => {
-          setIsTransitioning(false);
-        }, 10);
-      }, 250);
-      
-      return () => clearTimeout(timer);
-    }
-  }, [router.asPath, displayedRoute]);
+    // Fade in after a short delay
+    const timer = setTimeout(() => {
+      setIsVisible(true);
+    }, 250);
+    
+    return () => clearTimeout(timer);
+  }, [router.asPath]); // Trigger on every route change
 
   return (
     <Layout>
@@ -46,7 +38,8 @@ export default function App({ Component, pageProps }) {
             </nav>
             <div className={styles.pageContent}>
               <div 
-                className={`${styles.pageTransition} ${isTransitioning ? styles.fadeOut : styles.fadeIn}`}
+                className={styles.pageTransition}
+                style={{ opacity: isVisible ? 1 : 0 }}
               >
                 <Component {...pageProps} /> 
               </div>

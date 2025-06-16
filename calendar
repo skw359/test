@@ -1,0 +1,20 @@
+Invitation: a
+  .model({
+    id: a.id().required(), // auto-generated ID
+    chatId: a.string().required(),
+    inviterUsername: a.string().required(),
+    invitedUsername: a.string().required(),
+    status: a.string().required(), // "pending", "accepted", "declined"
+    sentAt: a.datetime().required(),
+    respondedAt: a.datetime(), // set on accept/decline
+  })
+  .authorization((allow) => [
+    allow.authenticated(),
+  ])
+  .secondaryIndexes((index) => [
+    index("chatId"),
+    index("invitedUsername"),
+  ])
+ 
+chatmessages
+invitationId: a.string(), // nullable FK to Invitations

@@ -25,7 +25,10 @@ export default function App({ Component, pageProps }) {
       
       const timer = setTimeout(() => {
         setDisplayedRoute(currentPath);
-        setIsTransitioning(false);
+        // Small delay to ensure new content renders before fade-in
+        setTimeout(() => {
+          setIsTransitioning(false);
+        }, 10);
       }, 250);
       
       return () => clearTimeout(timer);

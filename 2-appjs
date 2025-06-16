@@ -6,11 +6,42 @@ import { Amplify } from "aws-amplify";
 import Layout from '../../components/shared/layout';
 import ProfileButton from '../../components/shared/ProfileButton';
 import styles from '../styles/_app.module.css';
-import React, { useState, useEffect} from 'react';
+import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/router';
 
 Amplify.configure(outputs);
 
 export default function App({ Component, pageProps }) {
+  const router = useRouter();
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    const handleRouteChangeStart = () => {
+      setIsLoading(true);
+    };
+
+    const handleRouteChangeComplete = () => {
+      // Wait for fade out, then fade in
+      setTimeout(() => {
+        setIsLoading(false);
+      }, 250); // Half of the transition time
+    };
+
+    const handleRouteChangeError = () => {
+      setIsLoading(false);
+    };
+
+    router.events.on('routeChangeStart', handleRouteChangeStart);
+    router.events.on('routeChangeComplete', handleRouteChangeComplete);
+    router.events.on('routeChangeError', handleRouteChangeError);
+
+    return () => {
+      router.events.off('routeChangeStart', handleRouteChangeStart);
+      router.events.off('routeChangeComplete', handleRouteChangeComplete);
+      router.events.off('routeChangeError', handleRouteChangeError);
+    };
+  }, [router]);
+
   return (
     <Layout>
       <Authenticator>
@@ -21,7 +52,11 @@ export default function App({ Component, pageProps }) {
               <ProfileButton signOut={signOut} />
             </nav>
             <div className={styles.pageContent}>
-              <Component {...pageProps} /> 
+              <div 
+                className={`${styles.pageTransition} ${isLoading ? styles.fadeOut : styles.fadeIn}`}
+              >
+                <Component {...pageProps} /> 
+              </div>
             </div>
           </>
         )}

@@ -15,7 +15,7 @@ function Chat() {
   const [messages, setMessages] = useState([]);
   const [messageInput, setMessageInput] = useState('');
   const messagesEndRef = useRef(null);
-  const [loading, setloading] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [currChatId, setcurrChatId] = useState('');
   const [chats, setChats] = useState([]);
   
@@ -25,11 +25,15 @@ function Chat() {
     title: '',
     location: '',
     dateTime: '',
+    endDateTime: '',
     description: ''
   });
 
   // Meeting state
   const [chatMeetings, setChatMeetings] = useState({});
+
+  // Error state
+  const [error, setError] = useState('');
 
   useEffect(() => {
     const fetchCurrentUser = async () => {
@@ -39,76 +43,151 @@ function Chat() {
         setCurrentUser(user.username || user.signInDetails?.loginId || '');
       } catch (err) {
         console.log('Error fetching user:', err);
+        setError('Failed to get user information');
       }
     };
     fetchCurrentUser();
   }, []);
 
-  useEffect(() => { // load in chat rooms 
+  // FIXED: Load chats more efficiently
+  useEffect(() => {
     if (!currentUser) return;
 
-    const sub = client.models.ChatUser.observeQuery({
-        filter: { username: { eq: currentUser } },
-        sort: { field: 'timestamp', direction: 'desc' }
-    }).subscribe({
-        next: ({ items }) => {
-            console.log('ChatUser items updated:', items);
+    const loadUserChats = async () => {
+      setLoading(true);
+      try {
+        // Get all chats the user is part of
+        const userChats = await client.models.ChatUser.list({
+          filter: { 
+            username: { eq: currentUser },
+            isActive: { eq: true }
+          }
+        });
 
-            const enrich = async (items) => {
-              const enrichedChats = await Promise.all(items.map(async (chatUser) => {
+        console.log('User chats:', userChats);
+
+        // Get chat details and metadata efficiently
+        const enrichedChats = await Promise.all(
+          userChats.data.map(async (chatUser) => {
+            try {
+              // Get chat details
+              const chatRecord = await client.models.Chat.get({ id: chatUser.chatId });
+              
+              // Get chat metadata for last message info
+              let chatMetadata = null;
               try {
-                const chatRecord = await client.models.Chat.get({ id: chatUser.chatId });
-                console.log('Chat record:', chatRecord);
-                return {
-                  ...chatUser,
-                  chatName: chatRecord?.data.name || 'Unnamed Chat',
-                };
-              } catch (error) {
-                console.warn(`Failed to fetch chat for chatId: ${chatUser.chatId}`, error);
-                return { ...chatUser, chatName: 'Unknown' };
+                const metadataResult = await client.models.ChatMetadata.list({
+                  filter: { chatId: { eq: chatUser.chatId } }
+                });
+                chatMetadata = metadataResult.data[0] || null;
+              } catch (metaError) {
+                console.warn('No metadata found for chat:', chatUser.chatId);
               }
-              }));
-              console.log("Enriched chats:", enrichedChats);
-              setChats(enrichedChats);
-              setloading(false);
+
+              return {
+                ...chatUser,
+                chatName: chatRecord?.data?.name || 'Unnamed Chat',
+                lastMessageAt: chatMetadata?.lastMessageAt || chatUser.joinedAt,
+                lastMessagePreview: chatMetadata?.lastMessagePreview || '',
+                unreadCount: chatMetadata?.unreadCount || 0,
+              };
+            } catch (error) {
+              console.warn(`Failed to fetch chat for chatId: ${chatUser.chatId}`, error);
+              return {
+                ...chatUser,
+                chatName: 'Unknown Chat',
+                lastMessageAt: chatUser.joinedAt,
+                lastMessagePreview: '',
+                unreadCount: 0,
+              };
             }
-            
-            enrich(items)    
-        },
-        error: (error) => {
-            console.warn('Subscription error:', error);
-            setloading(false);
-        }
+          })
+        );
+
+        // Sort by last activity
+        enrichedChats.sort((a, b) => 
+          new Date(b.lastMessageAt) - new Date(a.lastMessageAt)
+        );
+
+        console.log("Enriched chats:", enrichedChats);
+        setChats(enrichedChats);
+        setError('');
+      } catch (error) {
+        console.error('Error loading chats:', error);
+        setError('Failed to load chats');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadUserChats();
+
+    // Subscribe to chat user changes
+    const sub = client.models.ChatUser.observeQuery({
+      filter: { username: { eq: currentUser } }
+    }).subscribe({
+      next: () => {
+        loadUserChats(); // Reload when user's chats change
+      },
+      error: (error) => {
+        console.warn('ChatUser subscription error:', error);
+      }
     });
 
     return () => sub.unsubscribe();
   }, [currentUser]);
 
-  useEffect(() => { // get all the messages associated with a chat
-      if (!currChatId) return;
+  // FIXED: Load messages more efficiently
+  useEffect(() => {
+    if (!currChatId) return;
 
-      console.log('Loading messages for chatId:', currChatId);
+    console.log('Loading messages for chatId:', currChatId);
+    setLoading(true);
 
-      const sub = client.models.ChatMessages.observeQuery({
+    // Load initial messages
+    const loadMessages = async () => {
+      try {
+        const messagesResult = await client.models.ChatMessages.list({
           filter: { chatId: { eq: currChatId } },
-          sort: { field: 'timestamp', direction: 'desc' }
-      }).subscribe({
-          next: ({ items }) => {
-              console.log("Chat messages updated:", items);
+          limit: 100 // Limit initial load
+        });
 
-              const sortedMessages = [...items].sort((a, b) =>
-                  new Date(a.timestamp) - new Date(b.timestamp)
-                  );
-              setMessages(sortedMessages);
-              scrollToBottom();
-          },
-              error: (error) => {
-              console.error("Error loading messages:", error);
-          }
-      });
+        const sortedMessages = messagesResult.data.sort((a, b) =>
+          new Date(a.timestamp) - new Date(b.timestamp)
+        );
 
-      return () => sub.unsubscribe();
-  }, [currChatId]);  
+        setMessages(sortedMessages);
+        setLoading(false);
+        scrollToBottom();
+      } catch (error) {
+        console.error('Error loading messages:', error);
+        setError('Failed to load messages');
+        setLoading(false);
+      }
+    };
+
+    loadMessages();
+
+    // Subscribe to new messages
+    const sub = client.models.ChatMessages.observeQuery({
+      filter: { chatId: { eq: currChatId } }
+    }).subscribe({
+      next: ({ items }) => {
+        console.log("Chat messages updated:", items);
+        const sortedMessages = [...items].sort((a, b) =>
+          new Date(a.timestamp) - new Date(b.timestamp)
+        );
+        setMessages(sortedMessages);
+        scrollToBottom();
+      },
+      error: (error) => {
+        console.error("Error in message subscription:", error);
+        setError('Connection to messages lost');
+      }
+    });
+
+    return () => sub.unsubscribe();
+  }, [currChatId]);
 
   // Load meetings for current chat
   useEffect(() => {
@@ -170,91 +249,199 @@ function Chat() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  // FIXED: Chat creation logic
+  // FIXED: Improved chat creation with proper error handling
   const createChat = async () => {
-      try{
-          // FIXED: Use OR logic and check for required fields
-          if (!currentUser || !recipientInput.trim()) {
-              console.error("Missing required fields: currentUser or recipientInput");
-              alert("Please enter a username to start a chat");
-              return;
-          }
+    try {
+      setLoading(true);
+      setError('');
 
-          console.log('Creating chat with:', { currentUser, recipientInput, chatName });
-
-          const newChat = await client.models.Chat.create({
-              createdAt: new Date().toISOString(),
-              name: chatName.trim() || `Chat with ${recipientInput.trim()}`
-          });
-
-          console.log('Created chat:', newChat);
-
-          // FIXED: Process recipients as comma-separated string
-          const recipients = recipientInput
-              .split(',')
-              .map(name => name.trim())
-              .filter(Boolean);
-          
-          // FIXED: Create unique members array properly
-          const uniqueMembers = Array.from(new Set([currentUser, ...recipients]));
-          console.log('Chat members:', uniqueMembers);
-
-          // Create ChatUser records for all members
-          for (const member of uniqueMembers) {
-              const chatUserResult = await client.models.ChatUser.create({
-                  username: member,
-                  chatId: newChat.data.id, // FIXED: Use correct ID field
-                  timestamp: new Date().toISOString(),
-              });
-              console.log('Created ChatUser:', chatUserResult);
-          }
-
-          // Clear inputs and set current chat
-          setRecipientInput('')
-          setChatName('')
-          setcurrChatId(newChat.data.id) // FIXED: Use correct ID field
-
-      }catch(error){
-          console.error("Error creating chat:", error);
-          alert("Failed to create chat. Please try again.");
+      // Validate inputs
+      if (!currentUser || !recipientInput.trim()) {
+        setError("Please enter a username to start a chat");
+        setLoading(false);
+        return;
       }
-  }
+
+      // Process recipients
+      const recipients = recipientInput
+        .split(',')
+        .map(name => name.trim())
+        .filter(Boolean)
+        .filter(name => name !== currentUser); // Remove self
+
+      if (recipients.length === 0) {
+        setError("Please enter valid usernames (not your own)");
+        setLoading(false);
+        return;
+      }
+
+      console.log('Creating chat with recipients:', recipients);
+
+      // Create unique members array
+      const uniqueMembers = Array.from(new Set([currentUser, ...recipients]));
+      
+      // Check if chat with these exact members already exists
+      const existingUserChats = await client.models.ChatUser.list({
+        filter: { username: { eq: currentUser } }
+      });
+
+      for (const userChat of existingUserChats.data) {
+        try {
+          const chatMembers = await client.models.ChatUser.list({
+            filter: { chatId: { eq: userChat.chatId } }
+          });
+          
+          const memberUsernames = chatMembers.data.map(m => m.username).sort();
+          const newMemberUsernames = uniqueMembers.sort();
+          
+          if (JSON.stringify(memberUsernames) === JSON.stringify(newMemberUsernames)) {
+            setError("A chat with these members already exists");
+            setLoading(false);
+            setcurrChatId(userChat.chatId);
+            return;
+          }
+        } catch (checkError) {
+          console.warn('Error checking existing chat:', checkError);
+        }
+      }
+
+      // Create new chat
+      const chatData = {
+        name: chatName.trim() || `Chat with ${recipients.join(', ')}`,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        createdBy: currentUser,
+        participantCount: uniqueMembers.length,
+        lastActivity: new Date().toISOString(),
+      };
+
+      console.log('Creating chat with data:', chatData);
+      const newChat = await client.models.Chat.create(chatData);
+      console.log('Created chat:', newChat);
+
+      if (!newChat.data?.id) {
+        throw new Error('Failed to create chat - no ID returned');
+      }
+
+      // Create ChatUser records for all members
+      const chatUserPromises = uniqueMembers.map(async (member, index) => {
+        const chatUserData = {
+          username: member,
+          chatId: newChat.data.id,
+          joinedAt: new Date().toISOString(),
+          role: member === currentUser ? 'admin' : 'member',
+          isActive: true,
+          lastSeen: new Date().toISOString(),
+        };
+        
+        console.log(`Creating ChatUser ${index + 1}:`, chatUserData);
+        return client.models.ChatUser.create(chatUserData);
+      });
+
+      const chatUserResults = await Promise.all(chatUserPromises);
+      console.log('Created ChatUser records:', chatUserResults);
+
+      // Create initial chat metadata
+      await client.models.ChatMetadata.create({
+        chatId: newChat.data.id,
+        lastMessageAt: new Date().toISOString(),
+        lastMessageBy: currentUser,
+        lastMessagePreview: '',
+        unreadCount: 0,
+        totalMessages: 0,
+        participantUsernames: uniqueMembers,
+      });
+
+      // Send welcome message
+      await createMessage(`Chat created by ${currentUser}`, null, 'system');
+
+      // Clear inputs and set current chat
+      setRecipientInput('');
+      setChatName('');
+      setcurrChatId(newChat.data.id);
+      setRecipientUsername(chatData.name);
+
+    } catch (error) {
+      console.error("Error creating chat:", error);
+      setError(`Failed to create chat: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
     
-  const createMessage = async (content, meetingId = null) => {
-    try{
-        if (!currentUser ){
-            console.error("Could not get user")
-            return;
-        }
-        if (!currChatId){
-            console.error("could not get chatroom")
-            return;
-        }
+  // FIXED: Improved message creation
+  const createMessage = async (content, meetingId = null, messageType = 'text') => {
+    try {
+      if (!currentUser) {
+        setError("User not authenticated");
+        return;
+      }
+      if (!currChatId) {
+        setError("No chat selected");
+        return;
+      }
+      if (!content.trim()) {
+        return;
+      }
 
-        console.log('Creating message:', { content, meetingId, chatId: currChatId });
+      console.log('Creating message:', { content, meetingId, chatId: currChatId, messageType });
 
-        const messageData = {
-            chatId: currChatId,
-            sendername: currentUser,
-            content: content,
-            timestamp: new Date().toISOString(),
+      const messageData = {
+        chatId: currChatId,
+        sendername: currentUser,
+        content: content.trim(),
+        timestamp: new Date().toISOString(),
+        messageType: messageType,
+        isEdited: false,
+      };
+
+      // Only add meetingId if it exists
+      if (meetingId) {
+        messageData.meetingId = meetingId;
+      }
+
+      const newMessage = await client.models.ChatMessages.create(messageData);
+      console.log('Created message:', newMessage);
+
+      // Update chat metadata
+      try {
+        const metadataResult = await client.models.ChatMetadata.list({
+          filter: { chatId: { eq: currChatId } }
+        });
+
+        const metadataUpdateData = {
+          lastMessageAt: new Date().toISOString(),
+          lastMessageBy: currentUser,
+          lastMessagePreview: content.slice(0, 100),
+          totalMessages: (metadataResult.data[0]?.totalMessages || 0) + 1,
         };
 
-        // Only add meetingId if it exists
-        if (meetingId) {
-            messageData.meetingId = meetingId;
+        if (metadataResult.data.length > 0) {
+          await client.models.ChatMetadata.update({
+            id: metadataResult.data[0].id,
+            ...metadataUpdateData
+          });
         }
 
-        const newMessage = await client.models.ChatMessages.create(messageData);
-        console.log('Created message:', newMessage);
+        // Update chat's lastActivity
+        await client.models.Chat.update({
+          id: currChatId,
+          lastActivity: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
 
-        setMessageInput('');
-        
-    }catch(error){
-        console.error("Error creating message:", error);
-        alert("Failed to send message. Please try again.");
+      } catch (metaError) {
+        console.warn('Failed to update metadata:', metaError);
+      }
+
+      setMessageInput('');
+      setError('');
+      
+    } catch (error) {
+      console.error("Error creating message:", error);
+      setError(`Failed to send message: ${error.message}`);
     }
-  }
+  };
 
   const handleSendMessage = () => {
     if (!messageInput.trim()) return;
@@ -262,37 +449,63 @@ function Chat() {
     createMessage(messageInput.trim());
   };
 
+  // FIXED: Improved meeting creation
   const handleCreateMeeting = async () => {
     if (!meetingForm.title || !meetingForm.dateTime) {
-      alert('Please fill in at least the title and date/time');
+      setError('Please fill in at least the title and date/time');
       return;
     }
 
     try {
+      setLoading(true);
+      setError('');
       console.log('Creating meeting:', meetingForm);
 
-      // Step 1: Create the meeting in the Meeting table
-      const newMeeting = await client.models.Meeting.create({
+      // Validate date
+      const meetingDate = new Date(meetingForm.dateTime);
+      if (meetingDate < new Date()) {
+        setError('Meeting cannot be scheduled in the past');
+        setLoading(false);
+        return;
+      }
+
+      // Calculate end time if not provided
+      const endDateTime = meetingForm.endDateTime || 
+        new Date(meetingDate.getTime() + 60 * 60 * 1000).toISOString(); // Default 1 hour
+
+      // Step 1: Create the meeting
+      const meetingData = {
         title: meetingForm.title,
-        description: meetingForm.description,
-        location: meetingForm.location,
+        description: meetingForm.description || '',
+        location: meetingForm.location || '',
         dateTime: meetingForm.dateTime,
+        endDateTime: endDateTime,
         createdBy: currentUser,
         chatId: currChatId,
-        status: 'pending',
+        status: 'scheduled',
         createdAt: new Date().toISOString(),
-      });
+        updatedAt: new Date().toISOString(),
+        reminderMinutes: 15,
+      };
 
+      const newMeeting = await client.models.Meeting.create(meetingData);
       console.log('Created meeting:', newMeeting);
+
+      if (!newMeeting.data?.id) {
+        throw new Error('Failed to create meeting');
+      }
 
       // Step 2: Get all chat participants
       const chatParticipants = await client.models.ChatUser.list({
-        filter: { chatId: { eq: currChatId } }
+        filter: { 
+          chatId: { eq: currChatId },
+          isActive: { eq: true }
+        }
       });
 
       console.log('Chat participants:', chatParticipants);
 
-      // Step 3: Create meeting participants (invitations)
+      // Step 3: Create meeting participants
       const participantPromises = chatParticipants.data.map(async (chatUser) => {
         const status = chatUser.username === currentUser ? 'accepted' : 'invited';
         
@@ -302,6 +515,7 @@ function Chat() {
           status: status,
           invitedAt: new Date().toISOString(),
           respondedAt: status === 'accepted' ? new Date().toISOString() : null,
+          invitedBy: currentUser,
         });
       });
 
@@ -310,25 +524,29 @@ function Chat() {
       // Step 4: Create a chat message to notify about the meeting
       const meetingAnnouncement = `📅 ${currentUser} created a meeting: "${meetingForm.title}" on ${new Date(meetingForm.dateTime).toLocaleDateString()} at ${new Date(meetingForm.dateTime).toLocaleTimeString()}`;
       
-      await createMessage(meetingAnnouncement, newMeeting.data.id);
+      await createMessage(meetingAnnouncement, newMeeting.data.id, 'meeting');
 
       // Reset form and close modal
       setMeetingForm({
         title: '',
         location: '',
         dateTime: '',
+        endDateTime: '',
         description: ''
       });
       setShowMeetingModal(false);
 
     } catch (error) {
       console.error('Error creating meeting:', error);
-      alert('Failed to create meeting. Please try again.');
+      setError(`Failed to create meeting: ${error.message}`);
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleMeetingResponse = async (meetingId, response) => {
     try {
+      setError('');
       console.log('Responding to meeting:', { meetingId, response });
 
       // Update the meeting participant status
@@ -348,16 +566,17 @@ function Chat() {
 
         // Create a chat message about the response
         const meeting = chatMeetings[currChatId]?.find(m => m.id === meetingId);
-        const responseMessage = `${response === 'accepted' ? '✅' : '❌'} ${currentUser} ${response} the meeting: "${meeting?.title}"`;
+        const responseMessage = `${response === 'accepted' ? '✅' : response === 'declined' ? '❌' : '❓'} ${currentUser} ${response} the meeting: "${meeting?.title}"`;
         
-        await createMessage(responseMessage, meetingId);
+        await createMessage(responseMessage, meetingId, 'meeting');
       }
     } catch (error) {
       console.error('Error responding to meeting:', error);
-      alert('Failed to respond to meeting. Please try again.');
+      setError('Failed to respond to meeting');
     }
   };
 
+  // Helper functions remain the same
   const getMeetingStatus = (meeting) => {
     if (!meeting.participants) return 'unknown';
     
@@ -405,7 +624,7 @@ function Chat() {
     if (msg.meetingId) {
       const meeting = chatMeetings[currChatId]?.find(m => m.id === msg.meetingId);
       
-      if (meeting && msg.content.includes('created a meeting:')) {
+      if (meeting && (msg.content.includes('created a meeting:') || msg.messageType === 'meeting')) {
         // This is a meeting announcement
         return (
           <div key={msg.id} className={`${styles.messageWrapper} ${isSent ? styles.messageSent : styles.messageReceived}`}>
@@ -441,219 +660,11 @@ function Chat() {
                     Accept
                   </button>
                   <button 
+                    className={`${styles.meetingButton} ${styles.tentativeButton}`}
+                    onClick={() => handleMeetingResponse(meeting.id, 'tentative')}
+                  >
+                    Maybe
+                  </button>
+                  <button 
                     className={`${styles.meetingButton} ${styles.declineButton}`}
                     onClick={() => handleMeetingResponse(meeting.id, 'declined')}
-                  >
-                    Decline
-                  </button>
-                </div>
-              )}
-            </div>
-            <div className={styles.messageTime}>
-              {new Date(msg.timestamp || msg.createdAt || '').toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit'
-              })}
-            </div>
-          </div>
-        );
-      }
-    }
-
-    // Regular text message
-    return (
-      <div key={msg.id} className={`${styles.messageWrapper} ${isSent ? styles.messageSent : styles.messageReceived}`}>
-        <div className={styles.messageContent}>{msg.content}</div>
-        <div className={styles.messageTime}>
-          {new Date(msg.timestamp || msg.createdAt || '').toLocaleTimeString([], {
-            hour: '2-digit',
-            minute: '2-digit'
-          })}
-        </div>
-      </div>
-    );
-  };
-
-  if (!currentUser) return <div className={styles.loading}>Loading user...</div>;
-
-  return (
-    <div className={styles.chatContainer}>
-      <div className={styles.sidebar}>
-        <div className={styles.sidebarHeader}>
-          <h2 className={styles.title}>Chats</h2>
-          <input
-              type="text"
-              value={chatName}
-              onChange={e => setChatName(e.target.value)}
-              placeholder="Enter New Chat Name (optional)"
-              className={styles.input}
-            />
-          <div className={styles.newChatInput}>
-            <input
-              type="text"
-              value={recipientInput}
-              onChange={e => setRecipientInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && createChat()}
-              placeholder="Enter username to chat with..."
-              className={styles.input}
-            />
-            
-            {/* FIXED: Simplified button logic */}
-            <button onClick={createChat} className={styles.addButton}>+</button>
-          </div>
-        </div>
-        <div className={styles.chatList}>
-          {chats.length === 0 ? (
-            <div className={styles.noChats}>No recent chats</div>
-          ) : (
-            chats.map(chat => {
-              const isActive = chat.chatId === currChatId;
-              return (
-                <div
-                  key={chat.chatId}
-                  className={`${styles.chatItem} ${isActive ? styles.activeChat : ''}`}
-                  onClick={() => {
-                    console.log('Selecting chat:', chat.chatId);
-                    setcurrChatId(chat.chatId);
-                    setRecipientUsername(chat.chatName); // Set the recipient name for header
-                  }}
-                >
-                  <div className={styles.avatar}>{getInitials(chat.chatName)}</div>
-                  <div className={styles.chatInfo}>
-                    <div className={styles.chatTop}>
-                     <span className={styles.chatName}>{chat.chatName}</span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-      </div>
-      
-      <div className={styles.chatWindow}>
-        {!currChatId ? (
-          <div className={styles.welcome}>
-            <h3>Welcome to Velocity Messaging</h3>
-            <p>Select a chat from the sidebar or start a new conversation.</p>
-          </div>
-        ) : (
-          <>
-            <div className={styles.chatHeader}>
-              <div className={styles.avatar}>{getInitials(recipientUsername)}</div>
-              <h3>{recipientUsername || 'Chat'}</h3>
-            </div>
-            <div className={styles.messages}>
-              {loading ? (
-                <div className={styles.loading}>Loading messages...</div>
-              ) : messages.length === 0 ? (
-                <div className={styles.loading}>No messages yet. Start the conversation!</div>
-              ) : (
-                messages.map((msg) => renderMessage(msg))
-              )}
-              <div ref={messagesEndRef}></div>
-            </div>
-            <div className={styles.messageInputWrapper}>
-              <button 
-                className={styles.plusButton}
-                onClick={() => setShowMeetingModal(true)}
-                title="Create meeting"
-              >
-                +
-              </button>
-              <input
-                value={messageInput}
-                onChange={e => setMessageInput(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
-                placeholder="Write a message..."
-                disabled={loading}
-                className={styles.messageInput}
-              />
-              <button
-                onClick={handleSendMessage}
-                disabled={loading || !messageInput.trim()}
-                className={styles.sendButton}
-              >
-                Send
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* Meeting Modal */}
-      {showMeetingModal && (
-        <div className={styles.modalOverlay}>
-          <div className={styles.modalContent}>
-            <div className={styles.modalHeader}>
-              <h3>Create Meeting</h3>
-              <button 
-                className={styles.closeButton}
-                onClick={() => setShowMeetingModal(false)}
-              >
-                ×
-              </button>
-            </div>
-            <div className={styles.modalBody}>
-              <div className={styles.formGroup}>
-                <label>Meeting Title *</label>
-                <input
-                  type="text"
-                  value={meetingForm.title}
-                  onChange={e => setMeetingForm({...meetingForm, title: e.target.value})}
-                  placeholder="Enter meeting title"
-                  className={styles.formInput}
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Date & Time *</label>
-                <input
-                  type="datetime-local"
-                  value={meetingForm.dateTime}
-                  onChange={e => setMeetingForm({...meetingForm, dateTime: e.target.value})}
-                  className={styles.formInput}
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Location</label>
-                <input
-                  type="text"
-                  value={meetingForm.location}
-                  onChange={e => setMeetingForm({...meetingForm, location: e.target.value})}
-                  placeholder="Enter meeting location"
-                  className={styles.formInput}
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>Description</label>
-                <textarea
-                  value={meetingForm.description}
-                  onChange={e => setMeetingForm({...meetingForm, description: e.target.value})}
-                  placeholder="Enter meeting description"
-                  className={styles.formTextarea}
-                  rows="3"
-                />
-              </div>
-            </div>
-            <div className={styles.modalFooter}>
-              <button 
-                className={styles.cancelButton}
-                onClick={() => setShowMeetingModal(false)}
-              >
-                Cancel
-              </button>
-              <button 
-                className={styles.createButton}
-                onClick={handleCreateMeeting}
-              >
-                Create Meeting
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-export default Chat;

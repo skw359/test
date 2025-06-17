@@ -1,0 +1,107 @@
+import { a, defineData, ClientSchema } from '@aws-amplify/backend';
+
+const schema = a.schema({
+  Message: a
+    .model({
+      owner: a.string().required(),   
+      receiver: a.string().required(),
+      content: a.string().required(),
+      timestamp: a.datetime().required(),
+    })
+    .authorization((allow) => [
+      allow.authenticated(), 
+    ])
+    .secondaryIndexes((index) => [
+      index('owner').sortKeys(['timestamp']),
+      index('receiver').sortKeys(['timestamp']),
+    ]),
+
+  Chat: a
+    .model({
+      createdAt: a.datetime().required(), 
+      name: a.string()
+    })
+    .authorization((allow) => [
+      allow.authenticated(), 
+    ]),
+
+  ChatUser: a
+    .model({
+      username: a.string().required(),
+      chatId: a.string().required(),
+      timestamp: a.datetime().required() 
+    })
+    .authorization((allow) => [
+      allow.authenticated(), 
+    ])
+    .secondaryIndexes((index) => [
+      index('username'),
+      index('chatId'),
+    ]),
+
+  ChatMessages: a
+    .model({
+      chatId: a.string().required(),
+      sendername: a.string().required(),
+      content: a.string().required(),
+      timestamp: a.datetime().required(),
+      // reference to meeting if this message is meeting-related
+      meetingId: a.string(),
+    })
+    .authorization((allow) => [
+      allow.authenticated(), 
+    ])
+    .secondaryIndexes((index) => [
+      index('chatId').sortKeys(['timestamp']),
+    ]),
+
+  // dedicated Meeting table
+  Meeting: a
+    .model({
+      title: a.string().required(),
+      description: a.string(),
+      location: a.string(),
+      dateTime: a.datetime().required(),
+      createdBy: a.string().required(),
+      chatId: a.string().required(),
+      status: a.enum(['pending', 'accepted', 'declined', 'cancelled']),
+      createdAt: a.datetime().required(),
+      updatedAt: a.datetime(),
+    })
+    .authorization((allow) => [
+      allow.authenticated(),
+    ])
+    .secondaryIndexes((index) => [
+      index('chatId').sortKeys(['dateTime']),
+      index('createdBy').sortKeys(['dateTime']),
+      index('status').sortKeys(['dateTime']),
+      index('dateTime'), // For efficient calendar queries by date range
+    ]),
+
+  // meeting participants/invitations
+  MeetingParticipant: a
+    .model({
+      meetingId: a.string().required(),
+      username: a.string().required(),
+      status: a.enum(['invited', 'accepted', 'declined']),
+      invitedAt: a.datetime().required(),
+      respondedAt: a.datetime(),
+    })
+    .authorization((allow) => [
+      allow.authenticated(),
+    ])
+    .secondaryIndexes((index) => [
+      index('meetingId'),
+      index('username').sortKeys(['invitedAt']),
+      index('status').sortKeys(['respondedAt']),
+    ]),
+});
+
+export type Schema = ClientSchema<typeof schema>;
+
+export const data = defineData({
+  schema,
+  authorizationModes: {
+    defaultAuthorizationMode: 'userPool',
+  },
+});

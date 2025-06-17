@@ -41,6 +41,12 @@ function Chat() {
         return;
       }
 
+      // Check if meeting tables exist
+      if (!client.models.MeetingInvitation) {
+        alert("Meeting functionality not available. Please deploy the updated schema first.");
+        return;
+      }
+
       // Generate unique invitation ID
       const invitationId = `meeting_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
@@ -86,7 +92,7 @@ function Chat() {
 
     } catch (error) {
       console.error("Error creating meeting invitation:", error);
-      alert("Error creating meeting invitation. Please try again.");
+      alert("Error creating meeting invitation. Make sure the schema is deployed with meeting tables.");
     }
   };
 
@@ -94,6 +100,11 @@ function Chat() {
     try {
       if (!currentUser || !currChatId) {
         console.error("Missing user or chat information");
+        return;
+      }
+
+      if (!client.models.MeetingResponse) {
+        alert("Meeting functionality not available. Please deploy the updated schema first.");
         return;
       }
 
@@ -109,18 +120,20 @@ function Chat() {
       });
 
       // Update the original meeting invitation status
-      try {
-        await client.models.MeetingInvitation.update({
-          invitationId: invitationId,
-          status: response,
-          updatedAt: new Date().toISOString(),
-        });
-      } catch (updateError) {
-        console.warn("Could not update meeting invitation status:", updateError);
+      if (client.models.MeetingInvitation) {
+        try {
+          await client.models.MeetingInvitation.update({
+            invitationId: invitationId,
+            status: response,
+            updatedAt: new Date().toISOString(),
+          });
+        } catch (updateError) {
+          console.warn("Could not update meeting invitation status:", updateError);
+        }
       }
 
       // If accepted, add to calendar
-      if (response === 'accepted') {
+      if (response === 'accepted' && client.models.Calendar) {
         try {
           const meetingInvite = await client.models.MeetingInvitation.get({ 
             invitationId: invitationId 
@@ -159,7 +172,7 @@ function Chat() {
 
     } catch (error) {
       console.error("Error handling meeting response:", error);
-      alert("Error responding to meeting. Please try again.");
+      alert("Error responding to meeting. Make sure the schema is deployed with meeting tables.");
     }
   };
 
@@ -430,14 +443,21 @@ function Chat() {
         if (!content.trim()) {
             return;
         }
- 
-        const newMessage = await client.models.ChatMessages.create({
+
+        // Create message with or without messageType depending on schema
+        const messageData = {
             chatId: currChatId,
             sendername: currentUser,
             content: content,
             timestamp: new Date().toISOString(),
-            messageType: messageType || 'text',
-        });
+        };
+
+        // Only add messageType if it exists in schema
+        if (client.models.ChatMessages.schema?.messageType) {
+            messageData.messageType = messageType || 'text';
+        }
+ 
+        const newMessage = await client.models.ChatMessages.create(messageData);
 
         console.log("Created message:", newMessage);
         

@@ -1,6 +1,7 @@
 import { a, defineData, ClientSchema } from '@aws-amplify/backend';
 
 const schema = a.schema({
+  // Core Message model (keep for backward compatibility if needed)
   Message: a
     .model({
       owner: a.string().required(),   
@@ -16,57 +17,85 @@ const schema = a.schema({
       index('receiver').sortKeys(['timestamp']),
     ]),
 
+  // FIXED: Chat model with proper relationships
   Chat: a
     .model({
-      createdAt: a.datetime().required(), 
-      name: a.string()
-    })
-    .authorization((allow) => [
-      allow.authenticated(), 
-    ]),
-
-  ChatUser: a
-    .model({
-      username: a.string().required(),
-      chatId: a.string().required(),
-      timestamp: a.datetime().required() 
+      name: a.string().required(),
+      createdAt: a.datetime().required(),
+      updatedAt: a.datetime(),
+      createdBy: a.string().required(), // Track who created the chat
+      // Add these to make queries more efficient
+      participantCount: a.integer().default(0),
+      lastActivity: a.datetime(),
     })
     .authorization((allow) => [
       allow.authenticated(), 
     ])
     .secondaryIndexes((index) => [
-      index('username'),
-      index('chatId'),
+      index('createdBy').sortKeys(['createdAt']),
+      index('lastActivity'), // For sorting chats by recent activity
     ]),
 
+  // FIXED: ChatUser with better structure
+  ChatUser: a
+    .model({
+      username: a.string().required(),
+      chatId: a.id().required(), // Use proper ID type for relationships
+      joinedAt: a.datetime().required(), // More descriptive than 'timestamp'
+      role: a.enum(['admin', 'member']).default('member'),
+      isActive: a.boolean().default(true), // Track if user is still in chat
+      lastSeen: a.datetime(),
+    })
+    .authorization((allow) => [
+      allow.authenticated(), 
+    ])
+    .secondaryIndexes((index) => [
+      index('username').sortKeys(['joinedAt']),
+      index('chatId').sortKeys(['joinedAt']),
+      // Compound index for efficient user-chat lookups
+      index('username').sortKeys(['chatId']),
+    ]),
+
+  // FIXED: ChatMessages with proper relationships
   ChatMessages: a
     .model({
-      chatId: a.string().required(),
+      chatId: a.id().required(), // Use proper ID type
       sendername: a.string().required(),
       content: a.string().required(),
       timestamp: a.datetime().required(),
-      // reference to meeting if this message is meeting-related
-      meetingId: a.string(),
+      messageType: a.enum(['text', 'meeting', 'system']).default('text'),
+      // Optional meeting reference
+      meetingId: a.id(),
+      // Message status tracking
+      isEdited: a.boolean().default(false),
+      editedAt: a.datetime(),
     })
     .authorization((allow) => [
       allow.authenticated(), 
     ])
     .secondaryIndexes((index) => [
       index('chatId').sortKeys(['timestamp']),
+      index('sendername').sortKeys(['timestamp']),
+      index('meetingId'), // For meeting-related messages
     ]),
 
-  // dedicated Meeting table
+  // FIXED: Meeting model with better relationships
   Meeting: a
     .model({
       title: a.string().required(),
       description: a.string(),
       location: a.string(),
       dateTime: a.datetime().required(),
+      endDateTime: a.datetime(), // Add end time for better calendar display
       createdBy: a.string().required(),
-      chatId: a.string().required(),
-      status: a.enum(['pending', 'accepted', 'declined', 'cancelled']),
+      chatId: a.id().required(), // Proper relationship to Chat
+      status: a.enum(['draft', 'scheduled', 'in_progress', 'completed', 'cancelled']).default('scheduled'),
       createdAt: a.datetime().required(),
       updatedAt: a.datetime(),
+      // Additional useful fields
+      meetingUrl: a.string(), // For virtual meetings
+      recurrence: a.enum(['none', 'daily', 'weekly', 'monthly']).default('none'),
+      reminderMinutes: a.integer().default(15),
     })
     .authorization((allow) => [
       allow.authenticated(),
@@ -75,25 +104,52 @@ const schema = a.schema({
       index('chatId').sortKeys(['dateTime']),
       index('createdBy').sortKeys(['dateTime']),
       index('status').sortKeys(['dateTime']),
-      index('dateTime'), // For efficient calendar queries by date range
+      index('dateTime'), // For calendar queries
+      // Add index for date range queries
+      index('dateTime').sortKeys(['status']),
     ]),
 
-  // meeting participants/invitations
+  // FIXED: MeetingParticipant with better tracking
   MeetingParticipant: a
     .model({
-      meetingId: a.string().required(),
+      meetingId: a.id().required(), // Proper relationship
       username: a.string().required(),
-      status: a.enum(['invited', 'accepted', 'declined']),
+      status: a.enum(['invited', 'accepted', 'declined', 'tentative']).default('invited'),
       invitedAt: a.datetime().required(),
       respondedAt: a.datetime(),
+      // Additional tracking
+      invitedBy: a.string(), // Who sent the invitation
+      responseNote: a.string(), // Optional note when responding
+      reminderSent: a.boolean().default(false),
     })
     .authorization((allow) => [
       allow.authenticated(),
     ])
     .secondaryIndexes((index) => [
-      index('meetingId'),
+      index('meetingId').sortKeys(['status']),
       index('username').sortKeys(['invitedAt']),
       index('status').sortKeys(['respondedAt']),
+      // Compound index for efficient user-meeting lookups
+      index('username').sortKeys(['meetingId']),
+    ]),
+
+  // NEW: Add ChatMetadata for better performance
+  ChatMetadata: a
+    .model({
+      chatId: a.id().required(),
+      lastMessageAt: a.datetime(),
+      lastMessageBy: a.string(),
+      lastMessagePreview: a.string(), // First 100 chars of last message
+      unreadCount: a.integer().default(0),
+      totalMessages: a.integer().default(0),
+      participantUsernames: a.string().array(), // Cache participant list for quick access
+    })
+    .authorization((allow) => [
+      allow.authenticated(),
+    ])
+    .secondaryIndexes((index) => [
+      index('chatId'),
+      index('lastMessageAt'), // For sorting chats by recent activity
     ]),
 });
 

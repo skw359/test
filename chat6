@@ -1,158 +1,3 @@
-import { a, defineData, ClientSchema } from '@aws-amplify/backend';
-import { timeStamp } from 'console';
-
-const schema = a.schema({
-  Message: a
-    .model({
-      owner: a.string().required(),  
-      receiver: a.string().required(),
-      content: a.string().required(),
-      timestamp: a.datetime().required(),
-    })
-    .authorization((allow) => [
-      allow.authenticated(), // Allow any authenticated user to CRUD messages
-    ])
-    // Add indexes for efficient querying
-    .secondaryIndexes((index) => [
-      index('owner').sortKeys(['timestamp']),
-      index('receiver').sortKeys(['timestamp']),
-    ]),
-
-  Chat: a //tables stores the unique chat id for each chat. Also stores the name of chat and when the initial chat was created
-    .model({
-      createdAt: a.datetime().required(),
-      name: a.string()
-    })
-    .authorization((allow) => [
-      allow.authenticated(), // Allow any authenticated user to CRUD messages
-    ]),
-
-  ChatUser: a // the join table between the chat table and the users in cognito. (what users are a part of what chats?)
-    .model({
-      username: a.string().required(),
-      chatId: a.string().required(),
-      timestamp: a.string().required(),
-    })
-    .authorization((allow) => [
-      allow.authenticated(), // Allow any authenticated user to CRUD messages
-    ])
-    .secondaryIndexes((index) => [
-      index('username'),
-      index('chatId'),
-    ]),
-
-    ChatMessages: a // this table stores chats sent by users. It knows what chat room the message is from, when it was sent and who sent it
-      .model({
-        chatId: a.string().required(),
-        sendername: a.string().required(),
-        content: a.string().required(),
-        timestamp: a.string().required(),
-        messageType: a.string().default('text'), // 'text', 'meeting_invite', 'meeting_response'
-      })
-      .authorization((allow) => [
-      allow.authenticated(), // Allow any authenticated user to CRUD messages
-    ]),
-
-    // New Calendar/Meeting related tables
-    MeetingInvitation: a
-      .model({
-        invitationId: a.string().required(),
-        chatId: a.string().required(),
-        createdBy: a.string().required(),
-        title: a.string().required(),
-        description: a.string(),
-        dateTime: a.datetime().required(),
-        location: a.string(),
-        status: a.string().required().default('pending'), // 'pending', 'accepted', 'declined', 'cancelled'
-        createdAt: a.datetime().required(),
-        updatedAt: a.datetime(),
-      })
-      .authorization((allow) => [
-        allow.authenticated(),
-      ])
-      .secondaryIndexes((index) => [
-        index('chatId').sortKeys(['dateTime']),
-        index('createdBy').sortKeys(['createdAt']),
-        index('invitationId'),
-      ]),
-
-    MeetingResponse: a
-      .model({
-        invitationId: a.string().required(),
-        chatId: a.string().required(),
-        username: a.string().required(),
-        response: a.string().required(), // 'accepted', 'declined', 'tentative'
-        respondedAt: a.datetime().required(),
-      })
-      .authorization((allow) => [
-        allow.authenticated(),
-      ])
-      .secondaryIndexes((index) => [
-        index('invitationId'),
-        index('chatId').sortKeys(['respondedAt']),
-        index('username').sortKeys(['respondedAt']),
-      ]),
-
-    Calendar: a // Store accepted meetings for easy calendar display
-      .model({
-        username: a.string().required(),
-        invitationId: a.string().required(),
-        chatId: a.string().required(),
-        title: a.string().required(),
-        description: a.string(),
-        dateTime: a.datetime().required(),
-        location: a.string(),
-        createdBy: a.string().required(),
-        addedAt: a.datetime().required(),
-      })
-      .authorization((allow) => [
-        allow.authenticated(),
-      ])
-      .secondaryIndexes((index) => [
-        index('username').sortKeys(['dateTime']),
-        index('chatId').sortKeys(['dateTime']),
-        index('invitationId'),
-      ]),
-});
-
-export type Schema = ClientSchema<typeof schema>;
-
-export const data = defineData({
-  schema,
-  authorizationModes: {
-    defaultAuthorizationMode: 'userPool',
-  },
-});
-
-/*== STEP 2 ===============================================================
-Go to your frontend source code. From your client-side code, generate a
-Data client to make CRUDL requests to your table. (THIS SNIPPET WILL ONLY
-WORK IN THE FRONTEND CODE FILE.)
-
-Using JavaScript or Next.js React Server Components, Middleware, Server
-Actions or Pages Router? Review how to generate Data clients for those use
-cases: https://docs.amplify.aws.gen2/build-a-backend/data/connect-to-API/
-=========================================================================*/
-
-/*
-"use client"
-import { generateClient } from "aws-amplify/data";
-import type { Schema } from "@/amplify/data/resource";
-
-const client = generateClient<Schema>() // use this Data client for CRUDL requests
-*/
-
-/*== STEP 3 ===============================================================
-Fetch records from the database and use them in your frontend component.
-(THIS SNIPPET WILL ONLY WORK IN THE FRONTEND CODE FILE.)
-=========================================================================*/
-
-/* For example, in a React component, you can use this snippet in your
-  function's RETURN statement */
-// const { data: todos } = await client.models.Todo.list()
-
-// return <ul>{todos.map(todo => <li key={todo.id}>{todo.content}</li>)}</ul>
-
 'use client';
  
 import React, { useState, useEffect, useRef } from 'react';
@@ -262,6 +107,11 @@ function Chat() {
  
       return () => sub.unsubscribe();
   }, [currChatId]);  
+
+  // Scroll to bottom when messages update
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
  
  
     // members is a list of usernames in the chat
@@ -291,7 +141,7 @@ function Chat() {
           setRecipientInput('')
           setChatName('')
  
-          setcurrChatId(newChat.data.chatId)
+          setcurrChatId(newChat.data.id)
       }catch(error){
           console.error("Error creating chat:", error);
       }
@@ -402,14 +252,20 @@ function Chat() {
         respondedAt: new Date().toISOString(),
       });
 
-      // If accepted, add to calendar
-      if (response === 'accepted') {
-        // Get the original meeting invitation
-        const meetingInvite = await client.models.MeetingInvitation.get({ 
-          invitationId: invitationId 
+      // Update the original meeting invitation status
+      const meetingInvite = await client.models.MeetingInvitation.get({ 
+        invitationId: invitationId 
+      });
+
+      if (meetingInvite.data) {
+        await client.models.MeetingInvitation.update({
+          invitationId: invitationId,
+          status: response,
+          updatedAt: new Date().toISOString(),
         });
 
-        if (meetingInvite.data) {
+        // If accepted, add to calendar
+        if (response === 'accepted') {
           await client.models.Calendar.create({
             username: currentUser,
             invitationId: invitationId,
@@ -459,7 +315,7 @@ function Chat() {
             </div>
             <div className={styles.meetingDetails}>
               <div className={styles.meetingDateTime}>
-                {new Date(meeting.dateTime).toLocaleString()}
+                📅 {new Date(meeting.dateTime).toLocaleString()}
               </div>
               {meeting.location && (
                 <div className={styles.meetingLocation}>📍 {meeting.location}</div>
@@ -477,13 +333,13 @@ function Chat() {
                   className={styles.acceptButton}
                   onClick={() => handleMeetingResponse(meeting.invitationId, 'accepted')}
                 >
-                  Accept
+                  ✅ Accept
                 </button>
                 <button 
                   className={styles.declineButton}
                   onClick={() => handleMeetingResponse(meeting.invitationId, 'declined')}
                 >
-                  Decline
+                  ❌ Decline
                 </button>
               </div>
             )}
@@ -515,7 +371,7 @@ function Chat() {
     }
     
     // Regular text message
-    return <div className={styles.messageContent}>{msg.content}</div>;
+    return msg.content;
   };
 
   const formatTime = (timestamp) => {
@@ -534,6 +390,17 @@ function Chat() {
   };
  
   const getInitials = (name) => name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+
+  // Get minimum datetime for meeting (current time)
+  const getMinDateTime = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+  };
  
   if (!currentUser) return <div className={styles.loading}>Loading user...</div>;
  
@@ -576,14 +443,14 @@ function Chat() {
           ) : (
             chats.map(chat => {
               //const lastMsg = lastMessages[chat];
-              const isActive = chat.username === recipientUsername;
+              const isActive = chat.chatId === currChatId;
               return (
                 <div
                   key={chat.chatId}
                   className={`${styles.chatItem} ${isActive ? styles.activeChat : ''}`}
                   onClick={() => setcurrChatId(chat.chatId)}
                 >
-                  <div className={styles.avatar}>{getInitials(chat.chatId)}</div>
+                  <div className={styles.avatar}>{getInitials(chat.chatName)}</div>
                   <div className={styles.chatInfo}>
                    
                     <div className={styles.chatTop}>
@@ -596,3 +463,172 @@ function Chat() {
                         {lastMsg.owner === currentUser ? 'You: ' : ''}
                         {lastMsg.content}
                       </div>
+                    )*/}
+     
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+      <div className={styles.chatWindow}>
+        {!currChatId ? (
+          <div className={styles.welcome}>
+            <h3>Welcome to Velocity Messaging</h3>
+            <p>Select a chat from the sidebar or start a new conversation.</p>
+          </div>
+        ) : (
+          <>
+            <div className={styles.chatHeader}>
+              <div className={styles.avatar}>{getInitials(recipientUsername)}</div>
+              <h3>{chats.find(chat => chat.chatId === currChatId)?.chatName || 'Chat'}</h3>
+            </div>
+            <div className={styles.messages}>
+              {loading ? (
+                <div className={styles.loading}>Loading messages...</div>
+              ) : messages.length === 0 ? (
+                <div className={styles.loading}>No messages yet. Start the conversation!</div>
+              ) : (
+                messages.map((msg) => (
+                  <div
+                    key={msg.id}
+                    className={`${styles.messageWrapper} ${msg.sendername === currentUser ? styles.messageSent : styles.messageReceived}`}
+                  >
+                    <div className={styles.messageContent}>
+                      {renderMessage(msg)}
+                    </div>
+                    <div className={styles.messageTime}>
+                      {new Date(msg.timestamp || msg.createdAt || '').toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </div>
+                  </div>
+                ))
+              )}
+              <div ref={messagesEndRef}></div>
+            </div>
+            <div className={styles.messageInputWrapper}>
+              <button
+                onClick={() => setShowMeetingModal(true)}
+                className={styles.calendarButton}
+                title="Create meeting"
+                disabled={loading}
+              >
+                📅
+              </button>
+              <input
+                value={messageInput}
+                onChange={e => setMessageInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.shiftKey && messageInput.trim()) {
+                    e.preventDefault();
+                    createMessage(messageInput);
+                  }
+                }}
+                placeholder="Write a message..."
+                disabled={loading}
+                className={styles.messageInput}
+              />
+              <button
+                onClick={() => {
+                  if (messageInput.trim()) {
+                    createMessage(messageInput);
+                  }
+                }}
+                disabled={loading || !messageInput.trim()}
+                className={styles.sendButton}
+              >
+                Send
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Meeting Modal */}
+      {showMeetingModal && (
+        <div className={styles.modalOverlay} onClick={() => setShowMeetingModal(false)}>
+          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h3>Create Meeting Invitation</h3>
+              <button 
+                className={styles.closeButton}
+                onClick={() => setShowMeetingModal(false)}
+              >
+                ×
+              </button>
+            </div>
+            <div className={styles.modalContent}>
+              <div className={styles.formGroup}>
+                <label htmlFor="meetingTitle">Title *</label>
+                <input
+                  id="meetingTitle"
+                  type="text"
+                  value={meetingForm.title}
+                  onChange={(e) => setMeetingForm({...meetingForm, title: e.target.value})}
+                  placeholder="Meeting title"
+                  className={styles.formInput}
+                />
+              </div>
+              
+              <div className={styles.formGroup}>
+                <label htmlFor="meetingDateTime">Date & Time *</label>
+                <input
+                  id="meetingDateTime"
+                  type="datetime-local"
+                  value={meetingForm.dateTime}
+                  onChange={(e) => setMeetingForm({...meetingForm, dateTime: e.target.value})}
+                  min={getMinDateTime()}
+                  className={styles.formInput}
+                />
+              </div>
+              
+              <div className={styles.formGroup}>
+                <label htmlFor="meetingLocation">Location</label>
+                <input
+                  id="meetingLocation"
+                  type="text"
+                  value={meetingForm.location}
+                  onChange={(e) => setMeetingForm({...meetingForm, location: e.target.value})}
+                  placeholder="Meeting location or URL"
+                  className={styles.formInput}
+                />
+              </div>
+              
+              <div className={styles.formGroup}>
+                <label htmlFor="meetingDescription">Description</label>
+                <textarea
+                  id="meetingDescription"
+                  value={meetingForm.description}
+                  onChange={(e) => setMeetingForm({...meetingForm, description: e.target.value})}
+                  placeholder="Meeting description"
+                  className={styles.formTextarea}
+                  rows="3"
+                />
+              </div>
+            </div>
+            <div className={styles.modalActions}>
+              <button 
+                className={styles.cancelButton}
+                onClick={() => setShowMeetingModal(false)}
+              >
+                Cancel
+              </button>
+              <button 
+                className={styles.createButton}
+                onClick={createMeetingInvitation}
+                disabled={!meetingForm.title || !meetingForm.dateTime}
+              >
+                Create Invitation
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default Chat;

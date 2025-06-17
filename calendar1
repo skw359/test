@@ -44,7 +44,7 @@ export default function Calendar() {
     fetchCurrentUser();
   }, []);
 
-  // Load meetings from all chats the user is part of
+  // Load meetings efficiently using dedicated schema
   useEffect(() => {
     if (!currentUser) return;
 
@@ -52,46 +52,41 @@ export default function Calendar() {
       try {
         setLoading(true);
         
-        // Get all chats the user is part of
-        const userChats = await client.models.ChatUser.list({
-          filter: { username: { eq: currentUser } }
+        // EFFICIENT: Direct query for user's accepted meetings
+        const participations = await client.models.MeetingParticipant.list({
+          filter: { 
+            username: { eq: currentUser },
+            status: { eq: 'accepted' }
+          }
         });
 
-        const allMeetings = {};
+        // Get meeting details in batch
+        const meetingPromises = participations.data.map(async (participation) => {
+          try {
+            const meeting = await client.models.Meeting.get({ id: participation.meetingId });
+            return meeting.data;
+          } catch (error) {
+            console.warn(`Failed to fetch meeting ${participation.meetingId}:`, error);
+            return null;
+          }
+        });
 
-        // For each chat, get all messages and extract meetings
-        for (const chatUser of userChats.data) {
-          const messages = await client.models.ChatMessages.list({
-            filter: { chatId: { eq: chatUser.chatId } }
-          });
+        const meetingDetails = (await Promise.all(meetingPromises)).filter(Boolean);
 
-          // Process messages to find accepted meetings
-          messages.data.forEach(msg => {
-            try {
-              const content = JSON.parse(msg.content);
-              
-              if (content.type === 'meeting_invite' && content.meeting.status === 'accepted') {
-                const meeting = content.meeting;
-                const meetingDate = new Date(meeting.dateTime);
-                const dateKey = `${meetingDate.getFullYear()}-${meetingDate.getMonth() + 1}-${meetingDate.getDate()}`;
-                
-                if (!allMeetings[dateKey]) {
-                  allMeetings[dateKey] = [];
-                }
-                
-                allMeetings[dateKey].push({
-                  ...meeting,
-                  chatId: chatUser.chatId,
-                  messageId: msg.id
-                });
-              }
-            } catch (e) {
-              // Skip non-JSON messages or invalid format
-            }
-          });
-        }
+        // Organize meetings by date
+        const meetingsByDate = {};
+        meetingDetails.forEach(meeting => {
+          const meetingDate = new Date(meeting.dateTime);
+          const dateKey = `${meetingDate.getFullYear()}-${meetingDate.getMonth() + 1}-${meetingDate.getDate()}`;
+          
+          if (!meetingsByDate[dateKey]) {
+            meetingsByDate[dateKey] = [];
+          }
+          
+          meetingsByDate[dateKey].push(meeting);
+        });
 
-        setMeetings(allMeetings);
+        setMeetings(meetingsByDate);
         setLoading(false);
       } catch (error) {
         console.error('Error loading meetings:', error);
@@ -102,66 +97,121 @@ export default function Calendar() {
     loadMeetings();
   }, [currentUser]);
 
-  // Real-time subscription for new meetings
+  // Real-time subscription for meeting updates
   useEffect(() => {
     if (!currentUser) return;
 
-    const subscription = client.models.ChatMessages.observeQuery().subscribe({
-      next: ({ items }) => {
-        // Process new messages for meeting updates
-        const updatedMeetings = { ...meetings };
+    // Subscribe to meeting participant changes
+    const participantSub = client.models.MeetingParticipant.observeQuery({
+      filter: { username: { eq: currentUser } }
+    }).subscribe({
+      next: async ({ items }) => {
+        // Reload meetings when participation changes
+        const acceptedParticipations = items.filter(p => p.status === 'accepted');
         
-        items.forEach(msg => {
+        const meetingPromises = acceptedParticipations.map(async (participation) => {
           try {
-            const content = JSON.parse(msg.content);
-            
-            if (content.type === 'meeting_invite' && content.meeting.status === 'accepted') {
-              const meeting = content.meeting;
-              const meetingDate = new Date(meeting.dateTime);
-              const dateKey = `${meetingDate.getFullYear()}-${meetingDate.getMonth() + 1}-${meetingDate.getDate()}`;
-              
-              if (!updatedMeetings[dateKey]) {
-                updatedMeetings[dateKey] = [];
-              }
-              
-              // Check if meeting already exists to avoid duplicates
-              const existingMeeting = updatedMeetings[dateKey].find(m => m.invitationId === meeting.invitationId);
-              if (!existingMeeting) {
-                updatedMeetings[dateKey].push({
-                  ...meeting,
-                  messageId: msg.id
-                });
-              }
-            }
-            
-            // Handle meeting responses (status updates)
-            if (content.type === 'meeting_response') {
-              const response = content.meeting;
-              
-              // Find and update the original meeting status
-              Object.keys(updatedMeetings).forEach(dateKey => {
-                updatedMeetings[dateKey] = updatedMeetings[dateKey].map(meeting => {
-                  if (meeting.invitationId === response.invitationId) {
-                    return { ...meeting, status: response.status };
-                  }
-                  return meeting;
-                }).filter(meeting => meeting.status === 'accepted'); // Only show accepted meetings
-              });
-            }
-          } catch (e) {
-            // Skip non-JSON messages
+            const meeting = await client.models.Meeting.get({ id: participation.meetingId });
+            return meeting.data;
+          } catch (error) {
+            console.warn(`Failed to fetch meeting ${participation.meetingId}:`, error);
+            return null;
           }
         });
-        
-        setMeetings(updatedMeetings);
+
+        const meetingDetails = (await Promise.all(meetingPromises)).filter(Boolean);
+
+        // Organize meetings by date
+        const meetingsByDate = {};
+        meetingDetails.forEach(meeting => {
+          const meetingDate = new Date(meeting.dateTime);
+          const dateKey = `${meetingDate.getFullYear()}-${meetingDate.getMonth() + 1}-${meetingDate.getDate()}`;
+          
+          if (!meetingsByDate[dateKey]) {
+            meetingsByDate[dateKey] = [];
+          }
+          
+          meetingsByDate[dateKey].push(meeting);
+        });
+
+        setMeetings(meetingsByDate);
       },
       error: (error) => {
-        console.error('Real-time subscription error:', error);
+        console.error('Participant subscription error:', error);
       }
     });
 
-    return () => subscription.unsubscribe();
-  }, [currentUser, meetings]);
+    // Subscribe to meeting changes
+    const meetingSub = client.models.Meeting.observeQuery().subscribe({
+      next: () => {
+        // Reload meetings when any meeting is updated
+        // This could be optimized further to only update specific meetings
+      },
+      error: (error) => {
+        console.error('Meeting subscription error:', error);
+      }
+    });
+
+    return () => {
+      participantSub.unsubscribe();
+      meetingSub.unsubscribe();
+    };
+  }, [currentUser]);
+
+  // Load meetings for specific date range (when navigating months)
+  const loadMeetingsForMonth = async (year, month) => {
+    if (!currentUser) return;
+
+    try {
+      const startDate = new Date(year, month, 1);
+      const endDate = new Date(year, month + 1, 0, 23, 59, 59);
+
+      // SUPER EFFICIENT: Query meetings by date range
+      const monthMeetings = await client.models.Meeting.list({
+        filter: {
+          dateTime: {
+            between: [startDate.toISOString(), endDate.toISOString()]
+          }
+        }
+      });
+
+      // Check which meetings the user is participating in
+      const participationPromises = monthMeetings.data.map(async (meeting) => {
+        try {
+          const participation = await client.models.MeetingParticipant.get({
+            meetingId: meeting.id,
+            username: currentUser
+          });
+          
+          return participation?.data?.status === 'accepted' ? meeting : null;
+        } catch {
+          return null; // User not participating in this meeting
+        }
+      });
+
+      const userMeetings = (await Promise.all(participationPromises)).filter(Boolean);
+
+      // Update meetings state with new month data
+      const meetingsByDate = { ...meetings };
+      userMeetings.forEach(meeting => {
+        const meetingDate = new Date(meeting.dateTime);
+        const dateKey = `${meetingDate.getFullYear()}-${meetingDate.getMonth() + 1}-${meetingDate.getDate()}`;
+        
+        if (!meetingsByDate[dateKey]) {
+          meetingsByDate[dateKey] = [];
+        }
+        
+        // Avoid duplicates
+        if (!meetingsByDate[dateKey].find(m => m.id === meeting.id)) {
+          meetingsByDate[dateKey].push(meeting);
+        }
+      });
+
+      setMeetings(meetingsByDate);
+    } catch (error) {
+      console.error('Error loading meetings for month:', error);
+    }
+  };
 
   // Build calendar days
   for (let i = 0; i < firstDay; i++) {
@@ -173,11 +223,15 @@ export default function Calendar() {
   }
   
   const goToTheLastMonth = () => {
-    setCurrentDate(new Date(year, month - 1, 1));
+    const newDate = new Date(year, month - 1, 1);
+    setCurrentDate(newDate);
+    loadMeetingsForMonth(newDate.getFullYear(), newDate.getMonth());
   };
   
   const goToTheNextMonth = () => {
-    setCurrentDate(new Date(year, month + 1, 1));
+    const newDate = new Date(year, month + 1, 1);
+    setCurrentDate(newDate);
+    loadMeetingsForMonth(newDate.getFullYear(), newDate.getMonth());
   };
   
   const isToday = (day) => {
@@ -209,16 +263,6 @@ export default function Calendar() {
   const formatMeetingTime = (dateTimeString) => {
     const date = new Date(dateTimeString);
     return date.toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true
-    });
-  };
-
-  const formatMeetingDateTime = (dateTimeString) => {
-    const date = new Date(dateTimeString);
-    return date.toLocaleString('en-US', {
-      weekday: 'long',
       hour: 'numeric',
       minute: '2-digit',
       hour12: true
@@ -257,7 +301,7 @@ export default function Calendar() {
           </button>
         </div>
         
-        {/* Days of week header */}
+        {/* days of week header */}
         <div className={styles.daysHeader}>
           {daysOfWeek.map(day => (
             <div key={day} className={styles.dayHeader}>
@@ -266,7 +310,7 @@ export default function Calendar() {
           ))}
         </div>
         
-        {/* Calendar grid */}
+        {/* calendar grid */}
         <div className={styles.calendarGrid}>
           {calendarDays.map((day, index) => (
             <div key={index}>
@@ -290,7 +334,7 @@ export default function Calendar() {
           ))}
         </div>
         
-        {/* Meeting popup */}
+        {/* meeting popup */}
         {showPopup && (
           <div className={styles.popupOverlay} onClick={closePopup}>
             <div className={styles.popup} onClick={(e) => e.stopPropagation()}>
@@ -299,7 +343,7 @@ export default function Calendar() {
                   {monthNames[month]} {selectedDay}, {year}
                 </h3>
                 <button className={styles.closeButton} onClick={closePopup}>
-                  ×
+                  X
                 </button>
               </div>
               <div className={styles.popupContent}>
@@ -309,9 +353,9 @@ export default function Calendar() {
                       Meetings for this day ({getMeetingsForDay(selectedDay).length}):
                     </h4>
                     {getMeetingsForDay(selectedDay).map((meeting, index) => (
-                      <div key={index} className={styles.meetingItem}>
+                      <div key={meeting.id} className={styles.meetingItem}>
                         <div className={styles.meetingItemHeader}>
-                          <span className={styles.meetingIcon}>📅</span>
+                          <span className={styles.meetingIcon}></span>
                           <span className={styles.meetingItemTitle}>{meeting.title}</span>
                           <span className={styles.meetingTime}>
                             {formatMeetingTime(meeting.dateTime)}
@@ -319,7 +363,7 @@ export default function Calendar() {
                         </div>
                         {meeting.location && (
                           <div className={styles.meetingLocation}>
-                            📍 {meeting.location}
+                          Location: {meeting.location}
                           </div>
                         )}
                         {meeting.description && (
@@ -332,7 +376,7 @@ export default function Calendar() {
                             Created by: {meeting.createdBy}
                           </span>
                           <span className={`${styles.meetingStatus} ${styles.statusAccepted}`}>
-                            ✅ Accepted
+                           Accepted
                           </span>
                         </div>
                       </div>

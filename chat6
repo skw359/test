@@ -1,3 +1,158 @@
+import { a, defineData, ClientSchema } from '@aws-amplify/backend';
+import { timeStamp } from 'console';
+
+const schema = a.schema({
+  Message: a
+    .model({
+      owner: a.string().required(),  
+      receiver: a.string().required(),
+      content: a.string().required(),
+      timestamp: a.datetime().required(),
+    })
+    .authorization((allow) => [
+      allow.authenticated(), // Allow any authenticated user to CRUD messages
+    ])
+    // Add indexes for efficient querying
+    .secondaryIndexes((index) => [
+      index('owner').sortKeys(['timestamp']),
+      index('receiver').sortKeys(['timestamp']),
+    ]),
+
+  Chat: a //tables stores the unique chat id for each chat. Also stores the name of chat and when the initial chat was created
+    .model({
+      createdAt: a.datetime().required(),
+      name: a.string()
+    })
+    .authorization((allow) => [
+      allow.authenticated(), // Allow any authenticated user to CRUD messages
+    ]),
+
+  ChatUser: a // the join table between the chat table and the users in cognito. (what users are a part of what chats?)
+    .model({
+      username: a.string().required(),
+      chatId: a.string().required(),
+      timestamp: a.string().required(),
+    })
+    .authorization((allow) => [
+      allow.authenticated(), // Allow any authenticated user to CRUD messages
+    ])
+    .secondaryIndexes((index) => [
+      index('username'),
+      index('chatId'),
+    ]),
+
+    ChatMessages: a // this table stores chats sent by users. It knows what chat room the message is from, when it was sent and who sent it
+      .model({
+        chatId: a.string().required(),
+        sendername: a.string().required(),
+        content: a.string().required(),
+        timestamp: a.string().required(),
+        messageType: a.string().default('text'), // 'text', 'meeting_invite', 'meeting_response'
+      })
+      .authorization((allow) => [
+      allow.authenticated(), // Allow any authenticated user to CRUD messages
+    ]),
+
+    // New Calendar/Meeting related tables
+    MeetingInvitation: a
+      .model({
+        invitationId: a.string().required(),
+        chatId: a.string().required(),
+        createdBy: a.string().required(),
+        title: a.string().required(),
+        description: a.string(),
+        dateTime: a.datetime().required(),
+        location: a.string(),
+        status: a.string().required().default('pending'), // 'pending', 'accepted', 'declined', 'cancelled'
+        createdAt: a.datetime().required(),
+        updatedAt: a.datetime(),
+      })
+      .authorization((allow) => [
+        allow.authenticated(),
+      ])
+      .secondaryIndexes((index) => [
+        index('chatId').sortKeys(['dateTime']),
+        index('createdBy').sortKeys(['createdAt']),
+        index('invitationId'),
+      ]),
+
+    MeetingResponse: a
+      .model({
+        invitationId: a.string().required(),
+        chatId: a.string().required(),
+        username: a.string().required(),
+        response: a.string().required(), // 'accepted', 'declined', 'tentative'
+        respondedAt: a.datetime().required(),
+      })
+      .authorization((allow) => [
+        allow.authenticated(),
+      ])
+      .secondaryIndexes((index) => [
+        index('invitationId'),
+        index('chatId').sortKeys(['respondedAt']),
+        index('username').sortKeys(['respondedAt']),
+      ]),
+
+    Calendar: a // Store accepted meetings for easy calendar display
+      .model({
+        username: a.string().required(),
+        invitationId: a.string().required(),
+        chatId: a.string().required(),
+        title: a.string().required(),
+        description: a.string(),
+        dateTime: a.datetime().required(),
+        location: a.string(),
+        createdBy: a.string().required(),
+        addedAt: a.datetime().required(),
+      })
+      .authorization((allow) => [
+        allow.authenticated(),
+      ])
+      .secondaryIndexes((index) => [
+        index('username').sortKeys(['dateTime']),
+        index('chatId').sortKeys(['dateTime']),
+        index('invitationId'),
+      ]),
+});
+
+export type Schema = ClientSchema<typeof schema>;
+
+export const data = defineData({
+  schema,
+  authorizationModes: {
+    defaultAuthorizationMode: 'userPool',
+  },
+});
+
+/*== STEP 2 ===============================================================
+Go to your frontend source code. From your client-side code, generate a
+Data client to make CRUDL requests to your table. (THIS SNIPPET WILL ONLY
+WORK IN THE FRONTEND CODE FILE.)
+
+Using JavaScript or Next.js React Server Components, Middleware, Server
+Actions or Pages Router? Review how to generate Data clients for those use
+cases: https://docs.amplify.aws.gen2/build-a-backend/data/connect-to-API/
+=========================================================================*/
+
+/*
+"use client"
+import { generateClient } from "aws-amplify/data";
+import type { Schema } from "@/amplify/data/resource";
+
+const client = generateClient<Schema>() // use this Data client for CRUDL requests
+*/
+
+/*== STEP 3 ===============================================================
+Fetch records from the database and use them in your frontend component.
+(THIS SNIPPET WILL ONLY WORK IN THE FRONTEND CODE FILE.)
+=========================================================================*/
+
+/* For example, in a React component, you can use this snippet in your
+  function's RETURN statement */
+// const { data: todos } = await client.models.Todo.list()
+
+// return <ul>{todos.map(todo => <li key={todo.id}>{todo.content}</li>)}</ul>
+
 'use client';
  
 import React, { useState, useEffect, useRef } from 'react';
@@ -18,13 +173,20 @@ function Chat() {
   const [loading, setloading] = useState(false);
   const [currChatId, setcurrChatId] = useState('');
   const [chats, setChats] = useState([]);
- 
- 
+  
+  // Calendar/Meeting states
+  const [showMeetingModal, setShowMeetingModal] = useState(false);
+  const [meetingForm, setMeetingForm] = useState({
+    title: '',
+    description: '',
+    dateTime: '',
+    location: ''
+  });
+
   useEffect(() => {
     const fetchCurrentUser = async () => {
       try {
         const user = await getCurrentUser();
-        console.l
         console.log(user)
         setCurrentUser(user.username || user.signInDetails?.loginId || '');
        
@@ -136,7 +298,7 @@ function Chat() {
   }
    
  
-  const createMessage = async (content)=>{
+  const createMessage = async (content, messageType = 'text')=>{
     try{
         if (!currentUser ){
             console.error("Could not get user")
@@ -144,6 +306,7 @@ function Chat() {
         }
         if (!currChatId){
             console.error("could not get chatroom")
+            return;
         }
  
         const newMessage = await client.models.ChatMessages.create({
@@ -151,14 +314,210 @@ function Chat() {
             sendername: currentUser,
             content: content,
             timestamp: new Date().toISOString(),
+            messageType: messageType,
         });
- 
+
+        // Clear message input if it's a regular text message
+        if (messageType === 'text') {
+            setMessageInput('');
+        }
        
     }catch(error){
         console.error("Error creating message:", error);
     }
- 
   }
+
+  // Meeting/Calendar functions
+  const createMeetingInvitation = async () => {
+    try {
+      if (!currentUser || !currChatId) {
+        console.error("Missing user or chat information");
+        return;
+      }
+
+      if (!meetingForm.title || !meetingForm.dateTime) {
+        alert("Please fill in at least the title and date/time");
+        return;
+      }
+
+      // Generate unique invitation ID
+      const invitationId = `meeting_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+      // Create meeting invitation record
+      await client.models.MeetingInvitation.create({
+        invitationId: invitationId,
+        chatId: currChatId,
+        createdBy: currentUser,
+        title: meetingForm.title,
+        description: meetingForm.description,
+        dateTime: new Date(meetingForm.dateTime).toISOString(),
+        location: meetingForm.location,
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+      });
+
+      // Create meeting invitation message
+      const meetingMessage = {
+        type: 'meeting_invite',
+        meeting: {
+          invitationId: invitationId,
+          title: meetingForm.title,
+          description: meetingForm.description,
+          dateTime: new Date(meetingForm.dateTime).toISOString(),
+          location: meetingForm.location,
+          createdBy: currentUser,
+          status: 'pending'
+        }
+      };
+
+      await createMessage(JSON.stringify(meetingMessage), 'meeting_invite');
+
+      // Reset form and close modal
+      setMeetingForm({
+        title: '',
+        description: '',
+        dateTime: '',
+        location: ''
+      });
+      setShowMeetingModal(false);
+
+    } catch (error) {
+      console.error("Error creating meeting invitation:", error);
+    }
+  };
+
+  const handleMeetingResponse = async (invitationId, response) => {
+    try {
+      if (!currentUser || !currChatId) {
+        console.error("Missing user or chat information");
+        return;
+      }
+
+      // Record the response
+      await client.models.MeetingResponse.create({
+        invitationId: invitationId,
+        chatId: currChatId,
+        username: currentUser,
+        response: response,
+        respondedAt: new Date().toISOString(),
+      });
+
+      // If accepted, add to calendar
+      if (response === 'accepted') {
+        // Get the original meeting invitation
+        const meetingInvite = await client.models.MeetingInvitation.get({ 
+          invitationId: invitationId 
+        });
+
+        if (meetingInvite.data) {
+          await client.models.Calendar.create({
+            username: currentUser,
+            invitationId: invitationId,
+            chatId: currChatId,
+            title: meetingInvite.data.title,
+            description: meetingInvite.data.description,
+            dateTime: meetingInvite.data.dateTime,
+            location: meetingInvite.data.location,
+            createdBy: meetingInvite.data.createdBy,
+            addedAt: new Date().toISOString(),
+          });
+        }
+      }
+
+      // Send response message
+      const responseMessage = {
+        type: 'meeting_response',
+        meeting: {
+          invitationId: invitationId,
+          response: response,
+          respondedBy: currentUser,
+          respondedAt: new Date().toISOString()
+        }
+      };
+
+      await createMessage(JSON.stringify(responseMessage), 'meeting_response');
+
+    } catch (error) {
+      console.error("Error handling meeting response:", error);
+    }
+  };
+
+  const renderMessage = (msg) => {
+    try {
+      // Try to parse as JSON for special message types
+      const content = JSON.parse(msg.content);
+      
+      if (content.type === 'meeting_invite') {
+        const meeting = content.meeting;
+        const isCurrentUserSender = msg.sendername === currentUser;
+        
+        return (
+          <div className={`${styles.meetingInvite} ${isCurrentUserSender ? styles.sentInvite : styles.receivedInvite}`}>
+            <div className={styles.meetingHeader}>
+              <span className={styles.meetingIcon}>📅</span>
+              <span className={styles.meetingTitle}>{meeting.title}</span>
+            </div>
+            <div className={styles.meetingDetails}>
+              <div className={styles.meetingDateTime}>
+                {new Date(meeting.dateTime).toLocaleString()}
+              </div>
+              {meeting.location && (
+                <div className={styles.meetingLocation}>📍 {meeting.location}</div>
+              )}
+              {meeting.description && (
+                <div className={styles.meetingDescription}>{meeting.description}</div>
+              )}
+              <div className={styles.meetingCreator}>
+                Created by: {meeting.createdBy}
+              </div>
+            </div>
+            {!isCurrentUserSender && meeting.status === 'pending' && (
+              <div className={styles.meetingActions}>
+                <button 
+                  className={styles.acceptButton}
+                  onClick={() => handleMeetingResponse(meeting.invitationId, 'accepted')}
+                >
+                  Accept
+                </button>
+                <button 
+                  className={styles.declineButton}
+                  onClick={() => handleMeetingResponse(meeting.invitationId, 'declined')}
+                >
+                  Decline
+                </button>
+              </div>
+            )}
+            {meeting.status !== 'pending' && (
+              <div className={`${styles.meetingStatus} ${styles[meeting.status]}`}>
+                {meeting.status === 'accepted' ? '✅ Accepted' : '❌ Declined'}
+              </div>
+            )}
+          </div>
+        );
+      }
+      
+      if (content.type === 'meeting_response') {
+        const response = content.meeting;
+        return (
+          <div className={styles.meetingResponse}>
+            <span className={styles.responseIcon}>
+              {response.response === 'accepted' ? '✅' : '❌'}
+            </span>
+            <span className={styles.responseText}>
+              {response.respondedBy} {response.response} the meeting invitation
+            </span>
+          </div>
+        );
+      }
+      
+    } catch (e) {
+      // Not a JSON message, render as regular text
+    }
+    
+    // Regular text message
+    return <div className={styles.messageContent}>{msg.content}</div>;
+  };
+
   const formatTime = (timestamp) => {
     if (!timestamp) return '';
     const date = new Date(timestamp);
@@ -237,532 +596,3 @@ function Chat() {
                         {lastMsg.owner === currentUser ? 'You: ' : ''}
                         {lastMsg.content}
                       </div>
-                    )*/}
-     
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-      </div>
-      <div className={styles.chatWindow}>
-        {!currChatId ? (
-          <div className={styles.welcome}>
-            <h3>Welcome to Velocity Messaging</h3>
-            <p>Select a chat from the sidebar or start a new conversation.</p>
-          </div>
-        ) : (
-          <>
-            <div className={styles.chatHeader}>
-              <div className={styles.avatar}>{getInitials(recipientUsername)}</div>
-              <h3>{recipientUsername}</h3>
-            </div>
-            <div className={styles.messages}>
-              {loading ? (
-                <div className={styles.loading}>Loading messages...</div>
-              ) : messages.length === 0 ? (
-                <div className={styles.loading}>No messages yet. Start the conversation!</div>
-              ) : (
-                messages.map((msg) => (
-                  <div
-                    key={msg.id}
-                    className={`${styles.messageWrapper} ${msg.sendername === currentUser ? styles.messageSent : styles.messageReceived}`}
-                  >
-                    <div className={styles.messageContent}>{msg.content}</div>
-                    <div className={styles.messageTime}>
-                      {new Date(msg.timestamp || msg.createdAt || '').toLocaleTimeString([], {
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })}
-                    </div>
-                  </div>
-                ))
-              )}
-              <div ref={messagesEndRef}></div>
-            </div>
-            <div className={styles.messageInputWrapper}>
-              <input
-                value={messageInput}
-                onChange={e => setMessageInput(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && createMessage(messageInput)}
-                placeholder="Write a message..."
-                disabled={loading}
-                className={styles.messageInput}
-              />
-              <button
-                onClick={() => createMessage(messageInput)}
-                disabled={loading || !messageInput.trim()}
-                className={styles.sendButton}
-              >
-                Send
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-resource.ts:
-export default Chat;
- 
- /*== STEP 1 ===============================================================
-The section below creates a Todo database table with a "content" field. Try
-adding a new "isDone" field as a boolean. The authorization rule below
-specifies that any unauthenticated user can "create", "read", "update",
-and "delete" any "Todo" records.
-=========================================================================*/
-import { a, defineData, ClientSchema } from '@aws-amplify/backend';
-import { timeStamp } from 'console';
- 
-const schema = a.schema({
-  Message: a
-    .model({
-      owner: a.string().required(),  
-      receiver: a.string().required(),
-      content: a.string().required(),
-      timestamp: a.datetime().required(),
-    })
-    .authorization((allow) => [
-      allow.authenticated(), // Allow any authenticated user to CRUD messages
-    ])
-    // Add indexes for efficient querying
-    .secondaryIndexes((index) => [
-      index('owner').sortKeys(['timestamp']),
-      index('receiver').sortKeys(['timestamp']),
-    ]),
- 
-  Chat: a //tables stores the unique chat id for each chat. Also stores the name of chat and when the initial chat was created
-    .model({
-      createdAt: a.datetime().required(),
-      name: a.string()
-    })
-    .authorization((allow) => [
-      allow.authenticated(), // Allow any authenticated user to CRUD messages
-    ]),
- 
-  ChatUser: a // the join table between the chat table and the users in cognito. (what users are a part of what chats?)
-    .model({
-      username: a.string().required(),
-      chatId: a.string().required(),
-      timestamp: a.string().required(),
-    })
-    .authorization((allow) => [
-      allow.authenticated(), // Allow any authenticated user to CRUD messages
-    ])
-    .secondaryIndexes((index) => [
-      index('username'),
-      index('chatId'),
-    ]),
- 
-    ChatMessages: a // this table stores chats sent by users. It knows what chat room the message is from, when it was sent and who sent it
-      .model({
-        chatId: a.string().required(),
-        sendername: a.string().required(),
-        content: a.string().required(),
-        timestamp: a.string().required(),
-      })
-      .authorization((allow) => [
-      allow.authenticated(), // Allow any authenticated user to CRUD messages
-    ]),
-});
- 
-export type Schema = ClientSchema<typeof schema>;
- 
-export const data = defineData({
-  schema,
-  authorizationModes: {
-    defaultAuthorizationMode: 'userPool',
-  },
-});
- 
-/*== STEP 2 ===============================================================
-Go to your frontend source code. From your client-side code, generate a
-Data client to make CRUDL requests to your table. (THIS SNIPPET WILL ONLY
-WORK IN THE FRONTEND CODE FILE.)
- 
-Using JavaScript or Next.js React Server Components, Middleware, Server
-Actions or Pages Router? Review how to generate Data clients for those use
-cases: https://docs.amplify.aws/gen2/build-a-backend/data/connect-to-API/
-=========================================================================*/
- 
-/*
-"use client"
-import { generateClient } from "aws-amplify/data";
-import type { Schema } from "@/amplify/data/resource";
- 
-const client = generateClient<Schema>() // use this Data client for CRUDL requests
-*/
- 
-/*== STEP 3 ===============================================================
-Fetch records from the database and use them in your frontend component.
-(THIS SNIPPET WILL ONLY WORK IN THE FRONTEND CODE FILE.)
-=========================================================================*/
- 
-/* For example, in a React component, you can use this snippet in your
-  function's RETURN statement */
-// const { data: todos } = await client.models.Todo.list()
- 
-// return <ul>{todos.map(todo => <li key={todo.id}>{todo.content}</li>)}</ul>
- 
-
-calendar:
-'use client';
-
-import { useState, useEffect } from 'react';
-import { getCurrentUser } from 'aws-amplify/auth';
-import { generateClient } from 'aws-amplify/api';
-import styles from '../styles/calendar.module.css';
-
-const client = generateClient();
-
-export default function Calendar() {
-  const [currentDate, setCurrentDate] = useState(new Date());
-  const [selectedDay, setSelectedDay] = useState(null);
-  const [showPopup, setShowPopup] = useState(false);
-  const [currentUser, setCurrentUser] = useState('');
-  const [meetings, setMeetings] = useState({});
-  const [loading, setLoading] = useState(true);
-  
-  const today = new Date();
-  const year = currentDate.getFullYear();
-  const month = currentDate.getMonth();
-  
-  const monthNames = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'
-  ];
-  
-  const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  
-  const firstDay = new Date(year, month, 1).getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  
-  const calendarDays = [];
-  
-  // Get current user
-  useEffect(() => {
-    const fetchCurrentUser = async () => {
-      try {
-        const user = await getCurrentUser();
-        setCurrentUser(user.username || user.signInDetails?.loginId || '');
-      } catch (err) {
-        console.log(err);
-      }
-    };
-    fetchCurrentUser();
-  }, []);
-
-  // Load meetings from all chats the user is part of
-  useEffect(() => {
-    if (!currentUser) return;
-
-    const loadMeetings = async () => {
-      try {
-        setLoading(true);
-        
-        // Get all chats the user is part of
-        const userChats = await client.models.ChatUser.list({
-          filter: { username: { eq: currentUser } }
-        });
-
-        const allMeetings = {};
-
-        // For each chat, get all messages and extract meetings
-        for (const chatUser of userChats.data) {
-          const messages = await client.models.ChatMessages.list({
-            filter: { chatId: { eq: chatUser.chatId } }
-          });
-
-          // Process messages to find accepted meetings
-          messages.data.forEach(msg => {
-            try {
-              const content = JSON.parse(msg.content);
-              
-              if (content.type === 'meeting_invite' && content.meeting.status === 'accepted') {
-                const meeting = content.meeting;
-                const meetingDate = new Date(meeting.dateTime);
-                const dateKey = `${meetingDate.getFullYear()}-${meetingDate.getMonth() + 1}-${meetingDate.getDate()}`;
-                
-                if (!allMeetings[dateKey]) {
-                  allMeetings[dateKey] = [];
-                }
-                
-                allMeetings[dateKey].push({
-                  ...meeting,
-                  chatId: chatUser.chatId,
-                  messageId: msg.id
-                });
-              }
-            } catch (e) {
-         
-            }
-          });
-        }
-
-        setMeetings(allMeetings);
-        setLoading(false);
-      } catch (error) {
-        console.error('Error loading meetings:', error);
-        setLoading(false);
-      }
-    };
-
-    loadMeetings();
-  }, [currentUser]);
-
-  // Real-time subscription for new meetings
-  useEffect(() => {
-    if (!currentUser) return;
-
-    const subscription = client.models.ChatMessages.observeQuery().subscribe({
-      next: ({ items }) => {
-        // Process new messages for meeting updates
-        const updatedMeetings = { ...meetings };
-        
-        items.forEach(msg => {
-          try {
-            const content = JSON.parse(msg.content);
-            
-            if (content.type === 'meeting_invite' && content.meeting.status === 'accepted') {
-              const meeting = content.meeting;
-              const meetingDate = new Date(meeting.dateTime);
-              const dateKey = `${meetingDate.getFullYear()}-${meetingDate.getMonth() + 1}-${meetingDate.getDate()}`;
-              
-              if (!updatedMeetings[dateKey]) {
-                updatedMeetings[dateKey] = [];
-              }
-              
-              // Check if meeting already exists to avoid duplicates
-              const existingMeeting = updatedMeetings[dateKey].find(m => m.invitationId === meeting.invitationId);
-              if (!existingMeeting) {
-                updatedMeetings[dateKey].push({
-                  ...meeting,
-                  messageId: msg.id
-                });
-              }
-            }
-            
-            // Handle meeting responses (status updates)
-            if (content.type === 'meeting_response') {
-              const response = content.meeting;
-              
-              // Find and update the original meeting status
-              Object.keys(updatedMeetings).forEach(dateKey => {
-                updatedMeetings[dateKey] = updatedMeetings[dateKey].map(meeting => {
-                  if (meeting.invitationId === response.invitationId) {
-                    return { ...meeting, status: response.status };
-                  }
-                  return meeting;
-                }).filter(meeting => meeting.status === 'accepted'); // Only show accepted meetings
-              });
-            }
-          } catch (e) {
-            // Skip non-JSON messages
-          }
-        });
-        
-        setMeetings(updatedMeetings);
-      },
-      error: (error) => {
-        console.error('Real-time subscription error:', error);
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, [currentUser, meetings]);
-
-  // Build calendar days
-  for (let i = 0; i < firstDay; i++) {
-    calendarDays.push(null);
-  }
-  
-  for (let day = 1; day <= daysInMonth; day++) {
-    calendarDays.push(day);
-  }
-  
-  const goToTheLastMonth = () => {
-    setCurrentDate(new Date(year, month - 1, 1));
-  };
-  
-  const goToTheNextMonth = () => {
-    setCurrentDate(new Date(year, month + 1, 1));
-  };
-  
-  const isToday = (day) => {
-    return day === today.getDate() && 
-           month === today.getMonth() && 
-           year === today.getFullYear();
-  };
-  
-  const hasMeetings = (day) => {
-    const dateKey = `${year}-${month + 1}-${day}`;
-    return meetings[dateKey] && meetings[dateKey].length > 0;
-  };
-  
-  const handleDayClick = (day) => {
-    setSelectedDay(day);
-    setShowPopup(true);
-  };
-  
-  const closePopup = () => {
-    setShowPopup(false);
-    setSelectedDay(null);
-  };
-  
-  const getMeetingsForDay = (day) => {
-    const dateKey = `${year}-${month + 1}-${day}`;
-    return meetings[dateKey] || [];
-  };
-
-  const formatMeetingTime = (dateTimeString) => {
-    const date = new Date(dateTimeString);
-    return date.toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true
-    });
-  };
-
-  const formatMeetingDateTime = (dateTimeString) => {
-    const date = new Date(dateTimeString);
-    return date.toLocaleString('en-US', {
-      weekday: 'long',
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true
-    });
-  };
-
-  if (loading) {
-    return (
-      <div className={styles.container}>
-        <div className={styles.container}>Loading...</div> {/* remmeber to replace this with loadingcircle() */}
-      </div>
-    );
-  }
-  
-  return (
-    <div className={styles.container}>
-      <div className={styles.calendarWrapper}>
-        {/* Header */}
-        <div className={styles.header}>
-          <button 
-            className={styles.navButton}
-            onClick={goToTheLastMonth}
-          >
-            &#8249;
-          </button>
-          
-          <h1 className={styles.monthTitle}>
-            {monthNames[month]} {year}
-          </h1>
-          
-          <button 
-            className={styles.navButton}
-            onClick={goToTheNextMonth}
-          >
-            &#8250;
-          </button>
-        </div>
-        
-        {/* Days of week header */}
-        <div className={styles.daysHeader}>
-          {daysOfWeek.map(day => (
-            <div key={day} className={styles.dayHeader}>
-              {day}
-            </div>
-          ))}
-        </div>
-        
-        {/* Calendar grid */}
-        <div className={styles.calendarGrid}>
-          {calendarDays.map((day, index) => (
-            <div key={index}>
-              {day && (
-                <button 
-                  className={`${styles.dayButton} ${isToday(day) ? styles.today : ''} ${hasMeetings(day) ? styles.hasMeetings : ''}`}
-                  onClick={() => handleDayClick(day)}
-                >
-                  {day}
-                  {hasMeetings(day) && (
-                    <div className={styles.eventIndicator}>
-                      <div className={styles.eventDot}></div>
-                      <span className={styles.eventCount}>
-                        {getMeetingsForDay(day).length}
-                      </span>
-                    </div>
-                  )}
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-        
-        {/* Meeting popup */}
-        {showPopup && (
-          <div className={styles.popupOverlay} onClick={closePopup}>
-            <div className={styles.popup} onClick={(e) => e.stopPropagation()}>
-              <div className={styles.popupHeader}>
-                <h3 className={styles.popupTitle}>
-                  {monthNames[month]} {selectedDay}, {year}
-                </h3>
-                <button className={styles.closeButton} onClick={closePopup}>
-                  ×
-                </button>
-              </div>
-              <div className={styles.popupContent}>
-                {getMeetingsForDay(selectedDay).length > 0 ? (
-                  <div className={styles.meetingsList}>
-                    <h4 className={styles.meetingsTitle}>
-                      Meetings for this day ({getMeetingsForDay(selectedDay).length}):
-                    </h4>
-                    {getMeetingsForDay(selectedDay).map((meeting, index) => (
-                      <div key={index} className={styles.meetingItem}>
-                        <div className={styles.meetingItemHeader}>
-                          <span className={styles.meetingIcon}>📅</span>
-                          <span className={styles.meetingItemTitle}>{meeting.title}</span>
-                          <span className={styles.meetingTime}>
-                            {formatMeetingTime(meeting.dateTime)}
-                          </span>
-                        </div>
-                        {meeting.location && (
-                          <div className={styles.meetingLocation}>
-                            📍 {meeting.location}
-                          </div>
-                        )}
-                        {meeting.description && (
-                          <div className={styles.meetingDescription}>
-                            {meeting.description}
-                          </div>
-                        )}
-                        <div className={styles.meetingMeta}>
-                          <span className={styles.meetingCreator}>
-                            Created by: {meeting.createdBy}
-                          </span>
-                          <span className={`${styles.meetingStatus} ${styles.statusAccepted}`}>
-                            ✅ Accepted
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className={styles.noMeetings}>
-                    
-                    <p>No meetings scheduled for this day.</p>
-                    <p className={styles.noMeetingsHint}>
-                      Accept meeting invites in your chats to see them here!
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}

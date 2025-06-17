@@ -1,4 +1,4 @@
-'use client';
+use client';
  
 import React, { useState, useEffect, useRef } from 'react';
 import { getCurrentUser } from 'aws-amplify/auth';
@@ -18,6 +18,283 @@ function Chat() {
   const [loading, setLoading] = useState(false);
   const [currChatId, setcurrChatId] = useState('');
   const [chats, setChats] = useState([]);
+  
+  // Calendar/Meeting states
+  const [showMeetingModal, setShowMeetingModal] = useState(false);
+  const [meetingForm, setMeetingForm] = useState({
+    title: '',
+    description: '',
+    dateTime: '',
+    location: ''
+  }
+
+  // Meeting/Calendar functions
+  const createMeetingInvitation = async () => {
+    try {
+      if (!currentUser || !currChatId) {
+        console.error("Missing user or chat information");
+        return;
+      }
+
+      if (!meetingForm.title || !meetingForm.dateTime) {
+        alert("Please fill in at least the title and date/time");
+        return;
+      }
+
+      // Generate unique invitation ID
+      const invitationId = `meeting_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+      console.log("Creating meeting invitation...");
+
+      // Create meeting invitation record
+      await client.models.MeetingInvitation.create({
+        invitationId: invitationId,
+        chatId: currChatId,
+        createdBy: currentUser,
+        title: meetingForm.title,
+        description: meetingForm.description || '',
+        dateTime: new Date(meetingForm.dateTime).toISOString(),
+        location: meetingForm.location || '',
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+      });
+
+      // Create meeting invitation message
+      const meetingMessage = {
+        type: 'meeting_invite',
+        meeting: {
+          invitationId: invitationId,
+          title: meetingForm.title,
+          description: meetingForm.description,
+          dateTime: new Date(meetingForm.dateTime).toISOString(),
+          location: meetingForm.location,
+          createdBy: currentUser,
+          status: 'pending'
+        }
+      };
+
+      await createMessage(JSON.stringify(meetingMessage), 'meeting_invite');
+
+      // Reset form and close modal
+      setMeetingForm({
+        title: '',
+        description: '',
+        dateTime: '',
+        location: ''
+      });
+      setShowMeetingModal(false);
+
+    } catch (error) {
+      console.error("Error creating meeting invitation:", error);
+      alert("Error creating meeting invitation. Please try again.");
+    }
+  };
+
+  const handleMeetingResponse = async (invitationId, response) => {
+    try {
+      if (!currentUser || !currChatId) {
+        console.error("Missing user or chat information");
+        return;
+      }
+
+      console.log(`Responding to meeting ${invitationId} with ${response}`);
+
+      // Record the response
+      await client.models.MeetingResponse.create({
+        invitationId: invitationId,
+        chatId: currChatId,
+        username: currentUser,
+        response: response,
+        respondedAt: new Date().toISOString(),
+      });
+
+      // Update the original meeting invitation status
+      try {
+        await client.models.MeetingInvitation.update({
+          invitationId: invitationId,
+          status: response,
+          updatedAt: new Date().toISOString(),
+        });
+      } catch (updateError) {
+        console.warn("Could not update meeting invitation status:", updateError);
+      }
+
+      // If accepted, add to calendar
+      if (response === 'accepted') {
+        try {
+          const meetingInvite = await client.models.MeetingInvitation.get({ 
+            invitationId: invitationId 
+          });
+
+          if (meetingInvite.data) {
+            await client.models.Calendar.create({
+              username: currentUser,
+              invitationId: invitationId,
+              chatId: currChatId,
+              title: meetingInvite.data.title,
+              description: meetingInvite.data.description || '',
+              dateTime: meetingInvite.data.dateTime,
+              location: meetingInvite.data.location || '',
+              createdBy: meetingInvite.data.createdBy,
+              addedAt: new Date().toISOString(),
+            });
+          }
+        } catch (calendarError) {
+          console.error("Error adding to calendar:", calendarError);
+        }
+      }
+
+      // Send response message
+      const responseMessage = {
+        type: 'meeting_response',
+        meeting: {
+          invitationId: invitationId,
+          response: response,
+          respondedBy: currentUser,
+          respondedAt: new Date().toISOString()
+        }
+      };
+
+      await createMessage(JSON.stringify(responseMessage), 'meeting_response');
+
+    } catch (error) {
+      console.error("Error handling meeting response:", error);
+      alert("Error responding to meeting. Please try again.");
+    }
+  };
+
+  const renderMessage = (msg) => {
+    try {
+      // Try to parse as JSON for special message types
+      const content = JSON.parse(msg.content);
+      
+      if (content.type === 'meeting_invite') {
+        const meeting = content.meeting;
+        const isCurrentUserSender = msg.sendername === currentUser;
+        
+        return (
+          <div style={{
+            border: '1px solid #007bff',
+            borderRadius: '8px',
+            padding: '15px',
+            margin: '10px 0',
+            background: isCurrentUserSender ? '#f8fff9' : '#f8f9ff',
+            maxWidth: '400px',
+            borderColor: isCurrentUserSender ? '#28a745' : '#007bff'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+              <span style={{ fontSize: '18px' }}>📅</span>
+              <span style={{ fontWeight: 'bold', color: '#333', fontSize: '16px' }}>{meeting.title}</span>
+            </div>
+            <div style={{ marginBottom: '15px' }}>
+              <div style={{ color: '#007bff', fontWeight: '500', marginBottom: '5px' }}>
+                📅 {new Date(meeting.dateTime).toLocaleString()}
+              </div>
+              {meeting.location && (
+                <div style={{ color: '#666', marginBottom: '5px' }}>📍 {meeting.location}</div>
+              )}
+              {meeting.description && (
+                <div style={{ color: '#333', marginBottom: '10px', fontStyle: 'italic' }}>{meeting.description}</div>
+              )}
+              <div style={{ color: '#666', fontSize: '12px' }}>
+                Created by: {meeting.createdBy}
+              </div>
+            </div>
+            {!isCurrentUserSender && meeting.status === 'pending' && (
+              <div style={{ display: 'flex', gap: '10px', marginTop: '15px' }}>
+                <button 
+                  onClick={() => handleMeetingResponse(meeting.invitationId, 'accepted')}
+                  style={{
+                    padding: '8px 16px',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    background: '#28a745',
+                    color: 'white'
+                  }}
+                >
+                  ✅ Accept
+                </button>
+                <button 
+                  onClick={() => handleMeetingResponse(meeting.invitationId, 'declined')}
+                  style={{
+                    padding: '8px 16px',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    background: '#dc3545',
+                    color: 'white'
+                  }}
+                >
+                  ❌ Decline
+                </button>
+              </div>
+            )}
+            {meeting.status !== 'pending' && (
+              <div style={{
+                marginTop: '10px',
+                padding: '5px 10px',
+                borderRadius: '4px',
+                fontSize: '12px',
+                fontWeight: '500',
+                textAlign: 'center',
+                background: meeting.status === 'accepted' ? '#d4edda' : '#f8d7da',
+                color: meeting.status === 'accepted' ? '#155724' : '#721c24',
+                border: `1px solid ${meeting.status === 'accepted' ? '#c3e6cb' : '#f5c6cb'}`
+              }}>
+                {meeting.status === 'accepted' ? '✅ Accepted' : '❌ Declined'}
+              </div>
+            )}
+          </div>
+        );
+      }
+      
+      if (content.type === 'meeting_response') {
+        const response = content.meeting;
+        return (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '8px 12px',
+            background: '#f8f9fa',
+            borderRadius: '4px',
+            margin: '5px 0',
+            fontSize: '14px',
+            color: '#666'
+          }}>
+            <span style={{ fontSize: '16px' }}>
+              {response.response === 'accepted' ? '✅' : '❌'}
+            </span>
+            <span style={{ fontStyle: 'italic' }}>
+              {response.respondedBy} {response.response} the meeting invitation
+            </span>
+          </div>
+        );
+      }
+      
+    } catch (e) {
+      // Not a JSON message, render as regular text
+    }
+    
+    // Regular text message
+    return msg.content;
+  };
+
+  // Get minimum datetime for meeting (current time)
+  const getMinDateTime = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+  };);
 
   useEffect(() => {
     const fetchCurrentUser = async () => {
@@ -139,7 +416,7 @@ function Chat() {
       }
   }
    
-  const createMessage = async (content) => {
+  const createMessage = async (content, messageType = 'text') => {
     try{
         if (!currentUser ){
             console.error("Could not get user")
@@ -159,10 +436,15 @@ function Chat() {
             sendername: currentUser,
             content: content,
             timestamp: new Date().toISOString(),
+            messageType: messageType || 'text',
         });
 
         console.log("Created message:", newMessage);
-        setMessageInput('');
+        
+        // Only clear input for regular text messages
+        if (messageType === 'text') {
+            setMessageInput('');
+        }
        
     }catch(error){
         console.error("Error creating message:", error);
@@ -265,7 +547,7 @@ function Chat() {
                     key={msg.id}
                     className={`${styles.messageWrapper} ${msg.sendername === currentUser ? styles.messageSent : styles.messageReceived}`}
                   >
-                    <div className={styles.messageContent}>{msg.content}</div>
+                    <div className={styles.messageContent}>{renderMessage(msg)}</div>
                     <div className={styles.messageTime}>
                       {new Date(msg.timestamp || msg.createdAt || '').toLocaleTimeString([], {
                         hour: '2-digit',
@@ -278,6 +560,27 @@ function Chat() {
               <div ref={messagesEndRef}></div>
             </div>
             <div className={styles.messageInputWrapper}>
+              <button
+                onClick={() => setShowMeetingModal(true)}
+                title="Create meeting"
+                disabled={loading}
+                style={{
+                  background: '#007bff',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '40px',
+                  height: '40px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  fontSize: '18px',
+                  marginRight: '10px',
+                  color: 'white'
+                }}
+              >
+                📅
+              </button>
               <input
                 value={messageInput}
                 onChange={e => setMessageInput(e.target.value)}
@@ -306,6 +609,186 @@ function Chat() {
           </>
         )}
       </div>
+
+      {/* Meeting Modal */}
+      {showMeetingModal && (
+        <div 
+          onClick={() => setShowMeetingModal(false)}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000
+          }}
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'white',
+              borderRadius: '8px',
+              width: '90%',
+              maxWidth: '500px',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              boxShadow: '0 10px 25px rgba(0, 0, 0, 0.2)'
+            }}
+          >
+            <div 
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '20px 20px 0 20px',
+                borderBottom: '1px solid #eee',
+                marginBottom: '20px'
+              }}
+            >
+              <h3 style={{ margin: 0, color: '#333', fontSize: '1.2rem' }}>Create Meeting Invitation</h3>
+              <button 
+                onClick={() => setShowMeetingModal(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: '24px',
+                  cursor: 'pointer',
+                  color: '#666',
+                  padding: 0,
+                  width: '30px',
+                  height: '30px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                ×
+              </button>
+            </div>
+            <div style={{ padding: '0 20px' }}>
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#333' }}>Title *</label>
+                <input
+                  type="text"
+                  value={meetingForm.title}
+                  onChange={(e) => setMeetingForm({...meetingForm, title: e.target.value})}
+                  placeholder="Meeting title"
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    fontSize: '14px',
+                    boxSizing: 'border-box'
+                  }}
+                />
+              </div>
+              
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#333' }}>Date & Time *</label>
+                <input
+                  type="datetime-local"
+                  value={meetingForm.dateTime}
+                  onChange={(e) => setMeetingForm({...meetingForm, dateTime: e.target.value})}
+                  min={getMinDateTime()}
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    fontSize: '14px',
+                    boxSizing: 'border-box'
+                  }}
+                />
+              </div>
+              
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#333' }}>Location</label>
+                <input
+                  type="text"
+                  value={meetingForm.location}
+                  onChange={(e) => setMeetingForm({...meetingForm, location: e.target.value})}
+                  placeholder="Meeting location or URL"
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    fontSize: '14px',
+                    boxSizing: 'border-box'
+                  }}
+                />
+              </div>
+              
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#333' }}>Description</label>
+                <textarea
+                  value={meetingForm.description}
+                  onChange={(e) => setMeetingForm({...meetingForm, description: e.target.value})}
+                  placeholder="Meeting description"
+                  rows="3"
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    fontSize: '14px',
+                    boxSizing: 'border-box',
+                    resize: 'vertical',
+                    minHeight: '80px'
+                  }}
+                />
+              </div>
+            </div>
+            <div 
+              style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: '10px',
+                padding: '20px',
+                borderTop: '1px solid #eee',
+                marginTop: '20px'
+              }}
+            >
+              <button 
+                onClick={() => setShowMeetingModal(false)}
+                style={{
+                  padding: '10px 20px',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  background: '#6c757d',
+                  color: 'white'
+                }}
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={createMeetingInvitation}
+                disabled={!meetingForm.title || !meetingForm.dateTime}
+                style={{
+                  padding: '10px 20px',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  background: !meetingForm.title || !meetingForm.dateTime ? '#6c757d' : '#007bff',
+                  color: 'white'
+                }}
+              >
+                Create Invitation
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

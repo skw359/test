@@ -1,0 +1,640 @@
+‘use client’;
+
+import React, { useState, useEffect, useRef } from ‘react’;
+import { getCurrentUser } from ‘aws-amplify/auth’;
+import { generateClient } from ‘aws-amplify/api’;
+import styles from ‘../styles/chat.module.css’;
+
+const client = generateClient();
+
+function Chat() {
+const [currentUser, setCurrentUser] = useState(’’);
+const [recipientUsername, setRecipientUsername] = useState(’’);
+const [chatName, setChatName] = useState(’’)
+const [recipientInput, setRecipientInput] = useState(’’);
+const [messages, setMessages] = useState([]);
+const [messageInput, setMessageInput] = useState(’’);
+const messagesEndRef = useRef(null);
+const [loading, setloading] = useState(false);
+const [currChatId, setcurrChatId] = useState(’’);
+const [chats, setChats] = useState([]);
+
+// Meeting modal state
+const [showMeetingModal, setShowMeetingModal] = useState(false);
+const [meetingForm, setMeetingForm] = useState({
+title: ‘’,
+location: ‘’,
+dateTime: ‘’,
+description: ‘’
+});
+
+// Meeting state
+const [chatMeetings, setChatMeetings] = useState({});
+
+useEffect(() => {
+const fetchCurrentUser = async () => {
+try {
+const user = await getCurrentUser();
+setCurrentUser(user.username || user.signInDetails?.loginId || ‘’);
+} catch (err) {
+console.log(err);
+}
+};
+fetchCurrentUser();
+}, []);
+
+useEffect(() => { // load in chat rooms
+if (!currentUser) return;
+
+```
+const sub = client.models.ChatUser.observeQuery({
+    filter: { username: { eq: currentUser } },
+    sort: { field: 'timestamp', direction: 'desc' }
+}).subscribe({
+    next: ({ items }) => {
+        const enrich = async (items) => {
+          const enrichedChats = await Promise.all(items.map(async (chatUser) => {
+          try {
+            const chatRecord = await client.models.Chat.get({ id: chatUser.chatId });
+            return {
+              ...chatUser,
+              chatName: chatRecord?.data.name || 'Unnamed Chat',
+            };
+          } catch (error) {
+            console.warn(`Failed to fetch chat for chatId: ${chatUser.chatId}`, error);
+            return { ...chatUser, chatName: 'Unknown' };
+          }
+          }));
+          setChats(enrichedChats);
+          setloading(false);
+        }
+        
+        enrich(items)    
+    },
+    error: (error) => {
+        console.warn('Subscription error:', error);
+        setloading(false);
+    }
+});
+
+return () => sub.unsubscribe();
+```
+
+}, [currentUser]);
+
+useEffect(() => { // get all the messages associated with a chat
+if (!currChatId) return;
+
+```
+  const sub = client.models.ChatMessages.observeQuery({
+      filter: { chatId: { eq: currChatId } },
+      sort: { field: 'timestamp', direction: 'desc' }
+  }).subscribe({
+      next: ({ items }) => {
+          const sortedMessages = [...items].sort((a, b) =>
+              new Date(a.timestamp) - new Date(b.timestamp)
+              );
+          setMessages(sortedMessages);
+          scrollToBottom();
+      },
+          error: (error) => {
+          console.error("Error loading messages:", error);
+      }
+  });
+
+  return () => sub.unsubscribe();
+```
+
+}, [currChatId]);
+
+// Load meetings for current chat
+useEffect(() => {
+if (!currChatId) return;
+
+```
+const loadChatMeetings = async () => {
+  try {
+    // Get all meetings for this chat
+    const meetings = await client.models.Meeting.list({
+      filter: { chatId: { eq: currChatId } }
+    });
+
+    // Get participation status for each meeting
+    const meetingsWithStatus = await Promise.all(
+      meetings.data.map(async (meeting) => {
+        try {
+          const participation = await client.models.MeetingParticipant.list({
+            filter: { meetingId: { eq: meeting.id } }
+          });
+          
+          return {
+            ...meeting,
+            participants: participation.data
+          };
+        } catch (error) {
+          console.warn(`Failed to get participants for meeting ${meeting.id}:`, error);
+          return { ...meeting, participants: [] };
+        }
+      })
+    );
+
+    setChatMeetings(prev => ({
+      ...prev,
+      [currChatId]: meetingsWithStatus
+    }));
+  } catch (error) {
+    console.error('Error loading chat meetings:', error);
+  }
+};
+
+loadChatMeetings();
+
+// Subscribe to meeting changes for this chat
+const meetingSub = client.models.Meeting.observeQuery({
+  filter: { chatId: { eq: currChatId } }
+}).subscribe({
+  next: () => {
+    loadChatMeetings(); // Reload when meetings change
+  },
+  error: (error) => {
+    console.error('Meeting subscription error:', error);
+  }
+});
+
+return () => meetingSub.unsubscribe();
+```
+
+}, [currChatId]);
+
+const scrollToBottom = () => {
+messagesEndRef.current?.scrollIntoView({ behavior: ‘smooth’ });
+};
+
+const createChat = async () => {
+try{
+if (!currentUser && !chatName && !recipientInput){
+console.error(“Could not get user”)
+return;
+}
+const newChat = await client.models.Chat.create({
+createdAt: new Date().toISOString(),
+name:chatName || ‘New Chat’
+});
+
+```
+      const uniqueMembers = Array.from(new Set([...recipientInput, currentUser]));
+
+      for (const member of uniqueMembers) {
+          await client.models.ChatUser.create({
+          username: member,
+          chatId: newChat.data.id,
+          timestamp: new Date().toISOString(),
+          });
+      }
+
+      setRecipientInput('')
+      setChatName('')
+      setcurrChatId(newChat.data.id)
+  }catch(error){
+      console.error("Error creating chat:", error);
+  }
+```
+
+}
+
+const createMessage = async (content, meetingId = null) => {
+try{
+if (!currentUser ){
+console.error(“Could not get user”)
+return;
+}
+if (!currChatId){
+console.error(“could not get chatroom”)
+return;
+}
+
+```
+    const newMessage = await client.models.ChatMessages.create({
+        chatId: currChatId,
+        sendername: currentUser,
+        content: content,
+        meetingId: meetingId, // Link to meeting if this is a meeting message
+        timestamp: new Date().toISOString(),
+    });
+
+    setMessageInput('');
+    
+}catch(error){
+    console.error("Error creating message:", error);
+}
+```
+
+}
+
+const handleSendMessage = () => {
+if (!messageInput.trim()) return;
+createMessage(messageInput.trim());
+};
+
+const handleCreateMeeting = async () => {
+if (!meetingForm.title || !meetingForm.dateTime) {
+alert(‘Please fill in at least the title and date/time’);
+return;
+}
+
+```
+try {
+  // Step 1: Create the meeting in the Meeting table
+  const newMeeting = await client.models.Meeting.create({
+    title: meetingForm.title,
+    description: meetingForm.description,
+    location: meetingForm.location,
+    dateTime: meetingForm.dateTime,
+    createdBy: currentUser,
+    chatId: currChatId,
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+  });
+
+  // Step 2: Get all chat participants
+  const chatParticipants = await client.models.ChatUser.list({
+    filter: { chatId: { eq: currChatId } }
+  });
+
+  // Step 3: Create meeting participants (invitations)
+  const participantPromises = chatParticipants.data.map(async (chatUser) => {
+    const status = chatUser.username === currentUser ? 'accepted' : 'invited';
+    
+    return client.models.MeetingParticipant.create({
+      meetingId: newMeeting.data.id,
+      username: chatUser.username,
+      status: status,
+      invitedAt: new Date().toISOString(),
+      respondedAt: status === 'accepted' ? new Date().toISOString() : null,
+    });
+  });
+
+  await Promise.all(participantPromises);
+
+  // Step 4: Create a chat message to notify about the meeting
+  const meetingAnnouncement = `📅 ${currentUser} created a meeting: "${meetingForm.title}" on ${new Date(meetingForm.dateTime).toLocaleDateString()} at ${new Date(meetingForm.dateTime).toLocaleTimeString()}`;
+  
+  await createMessage(meetingAnnouncement, newMeeting.data.id);
+
+  // Reset form and close modal
+  setMeetingForm({
+    title: '',
+    location: '',
+    dateTime: '',
+    description: ''
+  });
+  setShowMeetingModal(false);
+
+} catch (error) {
+  console.error('Error creating meeting:', error);
+  alert('Failed to create meeting. Please try again.');
+}
+```
+
+};
+
+const handleMeetingResponse = async (meetingId, response) => {
+try {
+// Update the meeting participant status
+const participation = await client.models.MeetingParticipant.list({
+filter: {
+meetingId: { eq: meetingId },
+username: { eq: currentUser }
+}
+});
+
+```
+  if (participation.data.length > 0) {
+    await client.models.MeetingParticipant.update({
+      id: participation.data[0].id,
+      status: response,
+      respondedAt: new Date().toISOString(),
+    });
+
+    // Create a chat message about the response
+    const meeting = chatMeetings[currChatId]?.find(m => m.id === meetingId);
+    const responseMessage = `${response === 'accepted' ? '✅' : '❌'} ${currentUser} ${response} the meeting: "${meeting?.title}"`;
+    
+    await createMessage(responseMessage, meetingId);
+  }
+} catch (error) {
+  console.error('Error responding to meeting:', error);
+  alert('Failed to respond to meeting. Please try again.');
+}
+```
+
+};
+
+const getMeetingStatus = (meeting) => {
+if (!meeting.participants) return ‘unknown’;
+
+```
+const userParticipation = meeting.participants.find(p => p.username === currentUser);
+return userParticipation?.status || 'not_invited';
+```
+
+};
+
+const formatTime = (timestamp) => {
+if (!timestamp) return ‘’;
+const date = new Date(timestamp);
+const now = new Date();
+const diff = now - date;
+const mins = Math.floor(diff / 60000);
+const hours = Math.floor(diff / 3600000);
+const days = Math.floor(diff / 86400000);
+if (mins < 1) return ‘now’;
+if (mins < 60) return `${mins}m`;
+if (hours < 24) return `${hours}h`;
+if (days < 7) return `${days}d`;
+return date.toLocaleDateString();
+};
+
+const formatMeetingDateTime = (dateTimeString) => {
+const date = new Date(dateTimeString);
+return date.toLocaleString(‘en-US’, {
+weekday: ‘long’,
+year: ‘numeric’,
+month: ‘long’,
+day: ‘numeric’,
+hour: ‘numeric’,
+minute: ‘2-digit’,
+timeZoneName: ‘short’
+});
+};
+
+const getInitials = (name) => name.split(’ ‘).map(n => n[0]).join(’’).toUpperCase().slice(0, 2);
+
+const renderMessage = (msg) => {
+const isSent = msg.sendername === currentUser;
+
+```
+// Check if this message is linked to a meeting
+if (msg.meetingId) {
+  const meeting = chatMeetings[currChatId]?.find(m => m.id === msg.meetingId);
+  
+  if (meeting && msg.content.includes('created a meeting:')) {
+    // This is a meeting announcement
+    return (
+      <div key={msg.id} className={`${styles.messageWrapper} ${isSent ? styles.messageSent : styles.messageReceived}`}>
+        <div className={`${styles.meetingCard} ${isSent ? styles.meetingCardSent : styles.meetingCardReceived}`}>
+          <div className={styles.meetingHeader}>
+            <span className={styles.meetingIcon}>📅</span>
+            <span className={styles.meetingTitle}>{meeting.title}</span>
+            <span className={`${styles.meetingStatus} ${styles[`status${getMeetingStatus(meeting).charAt(0).toUpperCase() + getMeetingStatus(meeting).slice(1)}`]}`}>
+              {getMeetingStatus(meeting)}
+            </span>
+          </div>
+          <div className={styles.meetingDetails}>
+            <div className={styles.meetingDateTime}>
+              🕒 {formatMeetingDateTime(meeting.dateTime)}
+            </div>
+            {meeting.location && (
+              <div className={styles.meetingLocation}>
+                📍 {meeting.location}
+              </div>
+            )}
+            {meeting.description && (
+              <div className={styles.meetingDescription}>
+                {meeting.description}
+              </div>
+            )}
+          </div>
+          {!isSent && getMeetingStatus(meeting) === 'invited' && (
+            <div className={styles.meetingActions}>
+              <button 
+                className={`${styles.meetingButton} ${styles.acceptButton}`}
+                onClick={() => handleMeetingResponse(meeting.id, 'accepted')}
+              >
+                Accept
+              </button>
+              <button 
+                className={`${styles.meetingButton} ${styles.declineButton}`}
+                onClick={() => handleMeetingResponse(meeting.id, 'declined')}
+              >
+                Decline
+              </button>
+            </div>
+          )}
+        </div>
+        <div className={styles.messageTime}>
+          {new Date(msg.timestamp || msg.createdAt || '').toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit'
+          })}
+        </div>
+      </div>
+    );
+  }
+}
+
+// Regular text message
+return (
+  <div key={msg.id} className={`${styles.messageWrapper} ${isSent ? styles.messageSent : styles.messageReceived}`}>
+    <div className={styles.messageContent}>{msg.content}</div>
+    <div className={styles.messageTime}>
+      {new Date(msg.timestamp || msg.createdAt || '').toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit'
+      })}
+    </div>
+  </div>
+);
+```
+
+};
+
+if (!currentUser) return <div className={styles.loading}>Loading user…</div>;
+
+return (
+<div className={styles.chatContainer}>
+<div className={styles.sidebar}>
+<div className={styles.sidebarHeader}>
+<h2 className={styles.title}>Chats</h2>
+<input
+type=“text”
+value={chatName}
+onChange={e => setChatName(e.target.value)}
+placeholder=“Enter New Chat Name”
+className={styles.input}
+/>
+<div className={styles.newChatInput}>
+<input
+type=“text”
+value={recipientInput}
+onChange={e => setRecipientInput(e.target.value)}
+onKeyDown={e => e.key === ‘Enter’ && createChat()}
+placeholder=“Start new chat…”
+className={styles.input}
+/>
+
+```
+        <button onClick={()=> {
+          const members = recipientInput
+                .split(',')
+                .map((name) => name.trim())
+                .filter(Boolean);
+            if (members.length === 0) return;
+            createChat(members);
+
+        }} className={styles.addButton}>+</button>
+      </div>
+    </div>
+    <div className={styles.chatList}>
+      {chats.length === 0 ? (
+        <div className={styles.noChats}>No recent chats</div>
+      ) : (
+        chats.map(chat => {
+          const isActive = chat.chatId === currChatId;
+          return (
+            <div
+              key={chat.chatId}
+              className={`${styles.chatItem} ${isActive ? styles.activeChat : ''}`}
+              onClick={() => setcurrChatId(chat.chatId)}
+            >
+              <div className={styles.avatar}>{getInitials(chat.chatId)}</div>
+              <div className={styles.chatInfo}>
+                <div className={styles.chatTop}>
+                 <span className={styles.chatName}>{chat.chatName}</span>
+                </div>
+              </div>
+            </div>
+          );
+        })
+      )}
+    </div>
+  </div>
+  
+  <div className={styles.chatWindow}>
+    {!currChatId ? (
+      <div className={styles.welcome}>
+        <h3>Welcome to Velocity Messaging</h3>
+        <p>Select a chat from the sidebar or start a new conversation.</p>
+      </div>
+    ) : (
+      <>
+        <div className={styles.chatHeader}>
+          <div className={styles.avatar}>{getInitials(recipientUsername)}</div>
+          <h3>{recipientUsername}</h3>
+        </div>
+        <div className={styles.messages}>
+          {loading ? (
+            <div className={styles.loading}>Loading messages...</div>
+          ) : messages.length === 0 ? (
+            <div className={styles.loading}>No messages yet. Start the conversation!</div>
+          ) : (
+            messages.map((msg) => renderMessage(msg))
+          )}
+          <div ref={messagesEndRef}></div>
+        </div>
+        <div className={styles.messageInputWrapper}>
+          <button 
+            className={styles.plusButton}
+            onClick={() => setShowMeetingModal(true)}
+            title="Create meeting"
+          >
+            +
+          </button>
+          <input
+            value={messageInput}
+            onChange={e => setMessageInput(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
+            placeholder="Write a message..."
+            disabled={loading}
+            className={styles.messageInput}
+          />
+          <button
+            onClick={handleSendMessage}
+            disabled={loading || !messageInput.trim()}
+            className={styles.sendButton}
+          >
+            Send
+          </button>
+        </div>
+      </>
+    )}
+  </div>
+
+  {/* Meeting Modal */}
+  {showMeetingModal && (
+    <div className={styles.modalOverlay}>
+      <div className={styles.modalContent}>
+        <div className={styles.modalHeader}>
+          <h3>Create Meeting</h3>
+          <button 
+            className={styles.closeButton}
+            onClick={() => setShowMeetingModal(false)}
+          >
+            ×
+          </button>
+        </div>
+        <div className={styles.modalBody}>
+          <div className={styles.formGroup}>
+            <label>Meeting Title *</label>
+            <input
+              type="text"
+              value={meetingForm.title}
+              onChange={e => setMeetingForm({...meetingForm, title: e.target.value})}
+              placeholder="Enter meeting title"
+              className={styles.formInput}
+            />
+          </div>
+          <div className={styles.formGroup}>
+            <label>Date & Time *</label>
+            <input
+              type="datetime-local"
+              value={meetingForm.dateTime}
+              onChange={e => setMeetingForm({...meetingForm, dateTime: e.target.value})}
+              className={styles.formInput}
+            />
+          </div>
+          <div className={styles.formGroup}>
+            <label>Location</label>
+            <input
+              type="text"
+              value={meetingForm.location}
+              onChange={e => setMeetingForm({...meetingForm, location: e.target.value})}
+              placeholder="Enter meeting location"
+              className={styles.formInput}
+            />
+          </div>
+          <div className={styles.formGroup}>
+            <label>Description</label>
+            <textarea
+              value={meetingForm.description}
+              onChange={e => setMeetingForm({...meetingForm, description: e.target.value})}
+              placeholder="Enter meeting description"
+              className={styles.formTextarea}
+              rows="3"
+            />
+          </div>
+        </div>
+        <div className={styles.modalFooter}>
+          <button 
+            className={styles.cancelButton}
+            onClick={() => setShowMeetingModal(false)}
+          >
+            Cancel
+          </button>
+          <button 
+            className={styles.createButton}
+            onClick={handleCreateMeeting}
+          >
+            Create Meeting
+          </button>
+        </div>
+      </div>
+    </div>
+  )}
+</div>
+```
+
+);
+}
+
+export default Chat;

@@ -1,4 +1,4 @@
-'use client';
+use client';
  
 import React, { useState, useEffect, useRef } from 'react';
 import { getCurrentUser } from 'aws-amplify/auth';
@@ -114,33 +114,29 @@ function Chat() {
   }, [messages]);
  
  
-    // members is a list of usernames in the chat
   const createChat = async () => {
       try{
-          if (!currentUser && !chatName && !recipientInput){
-              console.error("Could not get user")
+          if (!currentUser || !recipientInput){
+              console.error("Could not get user or recipient")
               return;
           }
           const newChat = await client.models.Chat.create({
               createdAt: new Date().toISOString(),
-              name:chatName || 'New Chat'
+              name: chatName || `Chat with ${recipientInput}`
           });
  
           const uniqueMembers = Array.from(new Set([recipientInput, currentUser]));
  
           for (const member of uniqueMembers) {
-              const newCU = await client.models.ChatUser.create({
+              await client.models.ChatUser.create({
               username: member,
               chatId: newChat.data.id,
               timestamp: new Date().toISOString(),
               });
- 
           }
  
-         
           setRecipientInput('')
           setChatName('')
- 
           setcurrChatId(newChat.data.id)
       }catch(error){
           console.error("Error creating chat:", error);
@@ -426,15 +422,7 @@ function Chat() {
               className={styles.input}
             />
            
-            <button onClick={()=> {
-              const members = recipientInput // this is code for if there are multiple users, (not really supported now)
-                    .split(',')
-                    .map((name) => name.trim())
-                    .filter(Boolean);
-                if (members.length === 0) return;
-                createChat(members);
- 
-            }} className={styles.addButton}>+</button>
+            <button onClick={createChat} className={styles.addButton}>+</button>
           </div>
         </div>
         <div className={styles.chatList}>
@@ -515,6 +503,20 @@ function Chat() {
                 className={styles.calendarButton}
                 title="Create meeting"
                 disabled={loading}
+                style={{
+                  background: '#007bff',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '40px',
+                  height: '40px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  fontSize: '18px',
+                  marginRight: '10px',
+                  color: 'white'
+                }}
               >
                 📅
               </button>
@@ -549,20 +551,70 @@ function Chat() {
 
       {/* Meeting Modal */}
       {showMeetingModal && (
-        <div className={styles.modalOverlay} onClick={() => setShowMeetingModal(false)}>
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
-              <h3>Create Meeting Invitation</h3>
+        <div 
+          className={styles.modalOverlay} 
+          onClick={() => setShowMeetingModal(false)}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000
+          }}
+        >
+          <div 
+            className={styles.modal} 
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'white',
+              borderRadius: '8px',
+              width: '90%',
+              maxWidth: '500px',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              boxShadow: '0 10px 25px rgba(0, 0, 0, 0.2)'
+            }}
+          >
+            <div 
+              className={styles.modalHeader}
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '20px 20px 0 20px',
+                borderBottom: '1px solid #eee',
+                marginBottom: '20px'
+              }}
+            >
+              <h3 style={{ margin: 0, color: '#333', fontSize: '1.2rem' }}>Create Meeting Invitation</h3>
               <button 
                 className={styles.closeButton}
                 onClick={() => setShowMeetingModal(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: '24px',
+                  cursor: 'pointer',
+                  color: '#666',
+                  padding: 0,
+                  width: '30px',
+                  height: '30px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
               >
                 ×
               </button>
             </div>
-            <div className={styles.modalContent}>
-              <div className={styles.formGroup}>
-                <label htmlFor="meetingTitle">Title *</label>
+            <div className={styles.modalContent} style={{ padding: '0 20px' }}>
+              <div className={styles.formGroup} style={{ marginBottom: '20px' }}>
+                <label htmlFor="meetingTitle" style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#333' }}>Title *</label>
                 <input
                   id="meetingTitle"
                   type="text"
@@ -570,11 +622,19 @@ function Chat() {
                   onChange={(e) => setMeetingForm({...meetingForm, title: e.target.value})}
                   placeholder="Meeting title"
                   className={styles.formInput}
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    fontSize: '14px',
+                    boxSizing: 'border-box'
+                  }}
                 />
               </div>
               
-              <div className={styles.formGroup}>
-                <label htmlFor="meetingDateTime">Date & Time *</label>
+              <div className={styles.formGroup} style={{ marginBottom: '20px' }}>
+                <label htmlFor="meetingDateTime" style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#333' }}>Date & Time *</label>
                 <input
                   id="meetingDateTime"
                   type="datetime-local"
@@ -582,11 +642,19 @@ function Chat() {
                   onChange={(e) => setMeetingForm({...meetingForm, dateTime: e.target.value})}
                   min={getMinDateTime()}
                   className={styles.formInput}
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    fontSize: '14px',
+                    boxSizing: 'border-box'
+                  }}
                 />
               </div>
               
-              <div className={styles.formGroup}>
-                <label htmlFor="meetingLocation">Location</label>
+              <div className={styles.formGroup} style={{ marginBottom: '20px' }}>
+                <label htmlFor="meetingLocation" style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#333' }}>Location</label>
                 <input
                   id="meetingLocation"
                   type="text"
@@ -594,11 +662,19 @@ function Chat() {
                   onChange={(e) => setMeetingForm({...meetingForm, location: e.target.value})}
                   placeholder="Meeting location or URL"
                   className={styles.formInput}
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    fontSize: '14px',
+                    boxSizing: 'border-box'
+                  }}
                 />
               </div>
               
-              <div className={styles.formGroup}>
-                <label htmlFor="meetingDescription">Description</label>
+              <div className={styles.formGroup} style={{ marginBottom: '20px' }}>
+                <label htmlFor="meetingDescription" style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#333' }}>Description</label>
                 <textarea
                   id="meetingDescription"
                   value={meetingForm.description}
@@ -606,13 +682,43 @@ function Chat() {
                   placeholder="Meeting description"
                   className={styles.formTextarea}
                   rows="3"
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    fontSize: '14px',
+                    boxSizing: 'border-box',
+                    resize: 'vertical',
+                    minHeight: '80px'
+                  }}
                 />
               </div>
             </div>
-            <div className={styles.modalActions}>
+            <div 
+              className={styles.modalActions}
+              style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: '10px',
+                padding: '20px',
+                borderTop: '1px solid #eee',
+                marginTop: '20px'
+              }}
+            >
               <button 
                 className={styles.cancelButton}
                 onClick={() => setShowMeetingModal(false)}
+                style={{
+                  padding: '10px 20px',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  background: '#6c757d',
+                  color: 'white'
+                }}
               >
                 Cancel
               </button>
@@ -620,6 +726,16 @@ function Chat() {
                 className={styles.createButton}
                 onClick={createMeetingInvitation}
                 disabled={!meetingForm.title || !meetingForm.dateTime}
+                style={{
+                  padding: '10px 20px',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  background: !meetingForm.title || !meetingForm.dateTime ? '#6c757d' : '#007bff',
+                  color: 'white'
+                }}
               >
                 Create Invitation
               </button>

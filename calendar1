@@ -14,8 +14,8 @@ export default function Calendar() {
   const [currentUser, setCurrentUser] = useState('');
   const [meetings, setMeetings] = useState({});
   const [loading, setLoading] = useState(true);
-  const [createdInvites,setCreatedInvites] = useState([])
-  const [ invitedInvites, setInvitedInvites] = useState([])
+  const [createdInvites, setCreatedInvites] = useState([]);
+  const [invitedInvites, setInvitedInvites] = useState([]);
   
   const today = new Date();
   const year = currentDate.getFullYear();
@@ -46,176 +46,110 @@ export default function Calendar() {
     fetchCurrentUser();
   }, []);
 
-  useEffect(()=>{ // get all the invitations created by the user
-    if (!currentUser){
-      return
+  // Get all the invitations created by the user
+  useEffect(() => {
+    if (!currentUser) {
+      return;
     }
     
     const sub = client.models.MeetingInvitation.observeQuery({
-        filter: { createdBy: { eq: currentUser } },
+      filter: { createdBy: { eq: currentUser } },
     }).subscribe({
-        next: ({ items }) => {
-            console.log("created invites")
-            console.log(items)
-
-            const sortedInvites = [...items].sort((a, b) =>
-                new Date(a.dateTime) - new Date(b.dateTime)
-                );
-            setCreatedInvites(sortedInvites);
-        },
-            error: (error) => {
-            console.error(error);
-        }
-    });
-
-
-    return () => sub.unsubscribe();
-    
-
-  },[currentUser])
-
-  useEffect(()=>{ // get all the invitations that the user was invited to
-    if (!currentUser){
-      return
-    }
-
-    const sub = client.models.MeetingInvitation.observeQuery({
-      filter: {invited: {eq:currentUser}}
-    }).subscribe({
-      next: ({items})=>{
-        console.log("invited Invites")
-        console.log(items)
- 
-        const sortedInvites = [...items].sort((a, b) =>
-          new Date(a.dateTime) - new Date(b.dateTime));
-
-
-        setInvitedInvites(sortedInvites);
-
-      }
-    })
-
-    return () => sub.unsubscribe();
-  }, [currentUser])
-
-  // Load meetings from all chats the user is part of
-  useEffect(() => {
-    if (!currentUser) return;
-
-    const loadMeetings = async () => {
-      try {
-        setLoading(true);
-        
-        // Get all chats the user is part of
-        const userChats = await client.models.ChatUser.list({
-          filter: { username: { eq: currentUser } }
-        });
-
-        const allMeetings = {};
-
-        // For each chat, get all messages and extract meetings
-        for (const chatUser of userChats.data) {
-          const messages = await client.models.ChatMessages.list({
-            filter: { chatId: { eq: chatUser.chatId } }
-          });
-
-          // Process messages to find accepted meetings
-          messages.data.forEach(msg => {
-            try {
-              const content = JSON.parse(msg.content);
-              
-              if (content.type === 'meeting_invite' && content.meeting.status === 'accepted') {
-                const meeting = content.meeting;
-                const meetingDate = new Date(meeting.dateTime);
-                const dateKey = `${meetingDate.getFullYear()}-${meetingDate.getMonth() + 1}-${meetingDate.getDate()}`;
-                
-                if (!allMeetings[dateKey]) {
-                  allMeetings[dateKey] = [];
-                }
-                
-                allMeetings[dateKey].push({
-                  ...meeting,
-                  chatId: chatUser.chatId,
-                  messageId: msg.id
-                });
-              }
-            } catch (e) {
-         
-            }
-          });
-        }
-
-        setMeetings(allMeetings);
-        setLoading(false);
-      } catch (error) {
-        console.error('Error loading meetings:', error);
-        setLoading(false);
-      }
-    };
-
-    loadMeetings();
-  }, [currentUser]);
-
-  // Real-time subscription for new meetings
-  useEffect(() => {
-    if (!currentUser) return;
-
-    const subscription = client.models.ChatMessages.observeQuery().subscribe({
       next: ({ items }) => {
-        // Process new messages for meeting updates
-        const updatedMeetings = { ...meetings };
-        
-        items.forEach(msg => {
-          try {
-            const content = JSON.parse(msg.content);
-            
-            if (content.type === 'meeting_invite' && content.meeting.status === 'accepted') {
-              const meeting = content.meeting;
-              const meetingDate = new Date(meeting.dateTime);
-              const dateKey = `${meetingDate.getFullYear()}-${meetingDate.getMonth() + 1}-${meetingDate.getDate()}`;
-              
-              if (!updatedMeetings[dateKey]) {
-                updatedMeetings[dateKey] = [];
-              }
-              
-              // Check if meeting already exists to avoid duplicates
-              const existingMeeting = updatedMeetings[dateKey].find(m => m.invitationId === meeting.invitationId);
-              if (!existingMeeting) {
-                updatedMeetings[dateKey].push({
-                  ...meeting,
-                  messageId: msg.id
-                });
-              }
-            }
-            
-            // Handle meeting responses (status updates)
-            if (content.type === 'meeting_response') {
-              const response = content.meeting;
-              
-              // Find and update the original meeting status
-              Object.keys(updatedMeetings).forEach(dateKey => {
-                updatedMeetings[dateKey] = updatedMeetings[dateKey].map(meeting => {
-                  if (meeting.invitationId === response.invitationId) {
-                    return { ...meeting, status: response.status };
-                  }
-                  return meeting;
-                }).filter(meeting => meeting.status === 'accepted'); // Only show accepted meetings
-              });
-            }
-          } catch (e) {
-            // Skip non-JSON messages
-          }
-        });
-        
-        setMeetings(updatedMeetings);
+        console.log("created invites", items);
+        const sortedInvites = [...items].sort((a, b) =>
+          new Date(a.dateTime) - new Date(b.dateTime)
+        );
+        setCreatedInvites(sortedInvites);
       },
       error: (error) => {
-        console.error('Real-time subscription error:', error);
+        console.error(error);
       }
     });
 
-    return () => subscription.unsubscribe();
-  }, [currentUser, meetings]);
+    return () => sub.unsubscribe();
+  }, [currentUser]);
+
+  // Get all the invitations that the user was invited to
+  useEffect(() => {
+    if (!currentUser) {
+      return;
+    }
+
+    const sub = client.models.MeetingInvitation.observeQuery({
+      filter: { invited: { eq: currentUser } }
+    }).subscribe({
+      next: ({ items }) => {
+        console.log("invited invites", items);
+        const sortedInvites = [...items].sort((a, b) =>
+          new Date(a.dateTime) - new Date(b.dateTime)
+        );
+        setInvitedInvites(sortedInvites);
+      },
+      error: (error) => {
+        console.error(error);
+      }
+    });
+
+    return () => sub.unsubscribe();
+  }, [currentUser]);
+
+  // Combine and organize meetings by date whenever invites change
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const organizeMeetingsByDate = () => {
+      const allMeetings = {};
+      
+      // Combine both created and invited meetings
+      const allInvites = [...createdInvites, ...invitedInvites];
+      
+      // Filter out duplicates (in case user invited themselves)
+      const uniqueInvites = allInvites.filter((invite, index, self) => 
+        index === self.findIndex(i => i.id === invite.id)
+      );
+      
+      // Only show accepted meetings and meetings created by the user
+      const relevantMeetings = uniqueInvites.filter(invite => 
+        invite.status === 'accepted' || invite.createdBy === currentUser
+      );
+      
+      // Group meetings by date
+      relevantMeetings.forEach(meeting => {
+        const meetingDate = new Date(meeting.dateTime);
+        const dateKey = `${meetingDate.getFullYear()}-${meetingDate.getMonth() + 1}-${meetingDate.getDate()}`;
+        
+        if (!allMeetings[dateKey]) {
+          allMeetings[dateKey] = [];
+        }
+        
+        allMeetings[dateKey].push({
+          id: meeting.id,
+          title: meeting.title,
+          description: meeting.description,
+          dateTime: meeting.dateTime,
+          location: meeting.location,
+          status: meeting.status,
+          createdBy: meeting.createdBy,
+          invited: meeting.invited,
+          chatId: meeting.chatId,
+          isCreator: meeting.createdBy === currentUser,
+          isInvited: meeting.invited === currentUser
+        });
+      });
+      
+      setMeetings(allMeetings);
+      setLoading(false);
+    };
+
+    // Only organize meetings if we have data
+    if (createdInvites.length > 0 || invitedInvites.length > 0) {
+      organizeMeetingsByDate();
+    } else if (currentUser) {
+      // If user is loaded but no invites, still set loading to false
+      setLoading(false);
+    }
+  }, [createdInvites, invitedInvites, currentUser]);
 
   // Build calendar days
   for (let i = 0; i < firstDay; i++) {
@@ -279,10 +213,48 @@ export default function Calendar() {
     });
   };
 
+  const getStatusIcon = (meeting) => {
+    if (meeting.isCreator) {
+      return '👤'; // Creator
+    }
+    
+    switch (meeting.status) {
+      case 'accepted':
+        return '✅';
+      case 'pending':
+        return '⏳';
+      case 'declined':
+        return '❌';
+      case 'cancelled':
+        return '🚫';
+      default:
+        return '📅';
+    }
+  };
+
+  const getStatusText = (meeting) => {
+    if (meeting.isCreator) {
+      return 'Created by you';
+    }
+    
+    switch (meeting.status) {
+      case 'accepted':
+        return 'Accepted';
+      case 'pending':
+        return 'Pending';
+      case 'declined':
+        return 'Declined';
+      case 'cancelled':
+        return 'Cancelled';
+      default:
+        return 'Unknown';
+    }
+  };
+
   if (loading) {
     return (
       <div className={styles.container}>
-        <div className={styles.container}>Loading...</div> {/* remmeber to replace this with loadingcircle() */}
+        <div className={styles.loadingContainer}>Loading calendar...</div>
       </div>
     );
   }
@@ -363,9 +335,11 @@ export default function Calendar() {
                       Meetings for this day ({getMeetingsForDay(selectedDay).length}):
                     </h4>
                     {getMeetingsForDay(selectedDay).map((meeting, index) => (
-                      <div key={index} className={styles.meetingItem}>
+                      <div key={meeting.id || index} className={styles.meetingItem}>
                         <div className={styles.meetingItemHeader}>
-                          <span className={styles.meetingIcon}>📅</span>
+                          <span className={styles.meetingIcon}>
+                            {getStatusIcon(meeting)}
+                          </span>
                           <span className={styles.meetingItemTitle}>{meeting.title}</span>
                           <span className={styles.meetingTime}>
                             {formatMeetingTime(meeting.dateTime)}
@@ -383,21 +357,25 @@ export default function Calendar() {
                         )}
                         <div className={styles.meetingMeta}>
                           <span className={styles.meetingCreator}>
-                            Created by: {meeting.createdBy}
+                            {meeting.isCreator ? 'Created by you' : `Created by: ${meeting.createdBy}`}
                           </span>
-                          <span className={`${styles.meetingStatus} ${styles.statusAccepted}`}>
-                            ✅ Accepted
+                          <span className={`${styles.meetingStatus} ${styles['status' + meeting.status]}`}>
+                            {getStatusText(meeting)}
                           </span>
                         </div>
+                        {meeting.isInvited && !meeting.isCreator && (
+                          <div className={styles.invitedIndicator}>
+                            📧 You were invited to this meeting
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
                 ) : (
                   <div className={styles.noMeetings}>
-                    
                     <p>No meetings scheduled for this day.</p>
                     <p className={styles.noMeetingsHint}>
-                      Accept meeting invites in your chats to see them here!
+                      Create or accept meeting invites in your chats to see them here!
                     </p>
                   </div>
                 )}
@@ -410,407 +388,3 @@ export default function Calendar() {
   );
 }
 
-calendar.module.css:
-.container {
-  min-height: 100vh;
-  background-color: transparent;
-  color: #ffffff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: Arial, sans-serif;
-}
-
-.calendarWrapper {
-  max-width: 600px;
-  width: 100%;
-}
-
-.header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 24px;
-}
-
-.navButton {
-  padding: 12px;
-  background-color: transparent;
-  border: none;
-  color: #ffffff;
-  cursor: pointer;
-  border-radius: 8px;
-  transition: background-color 0.2s;
-  font-size: 24px;
-}
-
-.navButton:hover {
-  background-color: #374151;
-}
-
-.monthTitle {
-  font-size: 32px;
-  font-weight: 600;
-  margin: 0;
-}
-
-.daysHeader {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.dayHeader {
-  padding: 16px;
-  text-align: center;
-  color: #9CA3AF;
-  font-size: 18px;
-  font-weight: 500;
-}
-
-.calendarGrid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 8px;
-}
-
-.dayButton {
-  width: 70px;
-  height: 70px;
-  background-color: transparent;
-  border: none;
-  color: #E5E7EB;
-  cursor: pointer;
-  border-radius: 12px;
-  font-size: 18px;
-  position: relative;
-}
-
-.dayButton:hover {
-  background-color: #374151;
-}
-
-.dayButton.today {
-  background-color: #667eea;
-  color: #ffffff;
-  font-weight: 600;
-}
-
-.dayButton.today:hover {
-  background-color: #667eea;
-}
-
-.dayButton.hasMeetings {
-  background-color: #10B981;
-  color: #ffffff;
-  font-weight: 600;
-}
-
-.dayButton.hasMeetings:hover {
-  background-color: #059669;
-}
-
-/* Event indicators */
-.eventIndicator {
-  position: absolute;
-  bottom: 4px;
-  right: 4px;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.eventDot {
-  width: 6px;
-  height: 6px;
-  background-color: #10B981;
-  border-radius: 50%;
-}
-
-.dayButton.today .eventDot,
-.dayButton.hasMeetings .eventDot {
-  background-color: #ffffff;
-}
-
-.eventCount {
-  font-size: 10px;
-  font-weight: 700;
-  color: #ffffff;
-  min-width: 12px;
-  text-align: center;
-}
-
-/* Loading state */
-.loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 400px;
-  font-size: 18px;
-  color: #ffffff;
-  background-color: rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-}
-
-/* Popup Styles */
-.popupOverlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(0, 0, 0, 0.8);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.popup {
-  background-color: #1F2937;
-  border-radius: 16px;
-  padding: 0;
-  max-width: 500px;
-  width: 90%;
-  max-height: 80vh;
-  overflow-y: auto;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
-}
-
-.popupHeader {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px;
-  border-bottom: 1px solid #374151;
-}
-
-.popupTitle {
-  font-size: 20px;
-  font-weight: 600;
-  margin: 0;
-  color: #ffffff;
-}
-
-.closeButton {
-  background: none;
-  border: none;
-  color: #9CA3AF;
-  font-size: 24px;
-  cursor: pointer;
-  padding: 4px;
-  line-height: 1;
-  transition: color 0.2s;
-}
-
-.closeButton:hover {
-  color: #ffffff;
-}
-
-.popupContent {
-  padding: 20px;
-}
-
-/* Meetings list */
-.meetingsList {
-  margin: 0;
-}
-
-.meetingsTitle {
-  font-size: 16px;
-  font-weight: 500;
-  margin: 0 0 16px 0;
-  color: #E5E7EB;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.meetingItem {
-  background-color: #374151;
-  border: 1px solid #4B5563;
-  border-radius: 12px;
-  padding: 16px;
-  margin-bottom: 12px;
-  transition: all 0.2s ease;
-}
-
-.meetingItem:hover {
-  border-color: #10B981;
-  background-color: #4B5563;
-}
-
-.meetingItemHeader {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 8px;
-}
-
-.meetingIcon {
-  font-size: 16px;
-}
-
-.meetingItemTitle {
-  font-size: 16px;
-  font-weight: 600;
-  color: #ffffff;
-  flex-grow: 1;
-}
-
-.meetingTime {
-  background-color: #667eea;
-  color: #ffffff;
-  padding: 4px 10px;
-  border-radius: 12px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.meetingLocation {
-  color: #D1D5DB;
-  font-size: 14px;
-  margin-bottom: 6px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.meetingDescription {
-  color: #9CA3AF;
-  font-size: 14px;
-  line-height: 1.4;
-  margin-bottom: 8px;
-  font-style: italic;
-}
-
-.meetingMeta {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid #4B5563;
-}
-
-.meetingCreator {
-  font-size: 12px;
-  color: #9CA3AF;
-}
-
-.meetingStatus {
-  padding: 3px 8px;
-  border-radius: 8px;
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-
-.statusAccepted {
-  background-color: #10B981;
-  color: #ffffff;
-}
-
-/* No meetings state */
-.noMeetings {
-  color: #9CA3AF;
-  text-align: center;
-  padding: 30px 20px;
-}
-
-.noMeetingsIcon {
-  font-size: 48px;
-  margin-bottom: 16px;
-  opacity: 0.5;
-}
-
-.noMeetings p {
-  margin: 8px 0;
-  font-size: 16px;
-}
-
-.noMeetingsHint {
-  font-size: 14px;
-  color: #6B7280;
-}
-
-.eventsTitle {
-  font-size: 16px;
-  font-weight: 500;
-  margin: 0 0 12px 0;
-  color: #E5E7EB;
-}
-
-.eventsList {
-  margin: 0;
-}
-
-.eventItem {
-  padding: 8px 0;
-  color: #D1D5DB;
-  border-bottom: 1px solid #374151;
-  font-size: 14px;
-}
-
-.eventItem:last-child {
-  border-bottom: none;
-}
-
-.noEvents {
-  color: #9CA3AF;
-  text-align: center;
-  padding: 20px 0;
-}
-
-@media (max-width: 768px) {
-  .container {
-    padding: 10px;
-  }
-  
-  .calendarWrapper {
-    max-width: 100%;
-  }
-  
-  .header {
-    margin-bottom: 16px;
-  }
-  
-  .monthTitle {
-    font-size: 24px;
-  }
-  
-  .navButton {
-    padding: 8px;
-    font-size: 20px;
-  }
-  
-  .dayButton {
-    width: 50px;
-    height: 50px;
-    font-size: 14px;
-  }
-  
-  .popup {
-    width: 95%;
-    max-width: none;
-  }
-  
-  .popupContent {
-    padding: 16px;
-  }
-  
-  .meetingItem {
-    padding: 12px;
-  }
-  
-  .meetingItemHeader {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-  }
-  
-  .meetingTime {
-    align-self: flex-end;
-  }
-}

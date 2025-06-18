@@ -1,7 +1,7 @@
-use client';
+'use client';
  
 import React, { useState, useEffect, useRef } from 'react';
-import { getCurrentUser } from 'aws-amplify/auth';
+import {fetchUserAttributes, getCurrentUser } from 'aws-amplify/auth';
 import { generateClient } from 'aws-amplify/api';
 import styles from '../styles/chat.module.css';
  
@@ -18,8 +18,10 @@ function Chat() {
   const [loading, setLoading] = useState(false);
   const [currChatId, setcurrChatId] = useState('');
   const [chats, setChats] = useState([]);
+  const [prefferedDictionary, setPrefferedDictionary ] = useState({})
+
   
-  // Calendar/Meeting states
+  // calendar/mtg states
   const [showMeetingModal, setShowMeetingModal] = useState(false);
   const [meetingForm, setMeetingForm] = useState({
     title: '',
@@ -34,6 +36,12 @@ function Chat() {
         const user = await getCurrentUser();
         console.log(user)
         setCurrentUser(user.username || user.signInDetails?.loginId || '');
+        const attributes = await fetchUserAttributes();
+
+        setPrefferedDictionary(prev=> ({
+          ...prev,
+          [user.username] : attributes.preferred_username
+        }))
        
       } catch (err) {
         console.log(err);
@@ -56,11 +64,38 @@ function Chat() {
  
                   const enrichedChats = await Promise.all(items.map(async (chatUser) => {
                   try {
-                    const chatRecord = await client.models.Chat.get({ id: chatUser.chatId });
-                    console.log(chatRecord)
+                    const chatRecords = await client.models.ChatUser.list({ filter:{ chatId: {eq: chatUser.chatId,}} });
+
+                    let recipientUser = ''
+
+                    chatRecords.data.forEach((chatRecord) =>{
+                      if (!(chatRecord.username === currentUser)){
+                        recipientUser = chatRecord.username
+                      }
+                    })
+
+                    
+
+                    const ProfileRecords = await client.models.UserProfile.list({ filter:{ userId: {eq: recipientUser,}} });
+
+                    const name = ProfileRecords.data[0]?.prefUser || recipientUser
+
+                    
+                    setPrefferedDictionary(prev => ({
+                      ...prev,
+                      [recipientUser]: name
+                    }));
+                    console.log('recipient dictionary')
+                    console.log(recipientUser)
+                    console.log(prefferedDictionary)
+
+                    const chatnamed = "Chat with " + name
+
+                    
+
                     return {
                       ...chatUser,
-                      chatName: chatRecord?.data?.name || 'Unnamed Chat',
+                      chatName: chatnamed || 'Unnamed Chat',
                     };
                   } catch (error) {
                     console.warn(`Failed to fetch chat for chatId: ${chatUser.chatId}`, error);
@@ -91,7 +126,7 @@ function Chat() {
           sort: { field: 'timestamp', direction: 'desc' }
       }).subscribe({
           next: ({ items }) => {
-              console.log("Chat messages updated: ",items)
+              console.log(items)
  
               const sortedMessages = [...items].sort((a, b) =>
                   new Date(a.timestamp) - new Date(b.timestamp)
@@ -99,7 +134,7 @@ function Chat() {
               setMessages(sortedMessages);
           },
               error: (error) => {
-              console.error("Error loading messages:", error);
+              console.error(error);
           }
       });
  
@@ -125,7 +160,7 @@ function Chat() {
               name: chatName || `Chat with ${recipientInput}`
           });
  
-          console.log("Created chat:", newChat);
+          console.log(newChat);
           
           const uniqueMembers = Array.from(new Set([recipientInput, currentUser]));
  
@@ -143,7 +178,7 @@ function Chat() {
           setLoading(false);
           
       }catch(error){
-          console.error("Error creating chat:", error);
+          console.error(error);
           setLoading(false);
       }
   }
@@ -171,7 +206,8 @@ function Chat() {
             messageType: messageType,
         });
 
-        console.log("Created message:", newMessage);
+        setMessageInput('')
+
         
         // Only clear input for regular text messages
         if (messageType === 'text') {
@@ -179,29 +215,45 @@ function Chat() {
         }
        
     }catch(error){
-        console.error("Error creating message:", error);
+        console.error(error);
     }
   }
 
-  // Meeting/Calendar functions
+  // Mmeeting/calendar functions
   const createMeetingInvitation = async () => {
     try {
       if (!currentUser || !currChatId) {
-        console.error("Missing user or chat information");
+        console.error("Current user or chat id not found");
         return;
       }
 
       if (!meetingForm.title || !meetingForm.dateTime) {
-        alert("Please fill in at least the title and date/time");
+        alert("No title or date for the meeting");
         return;
       }
 
       // Generate unique invitation ID
-      const invitationId = `meeting_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-      // Create meeting invitation record
+      const chatUsersRecords = await client.models.ChatUser.list({
+          filter: { chatId: { eq: currChatId } }
+      })
+
+
+      let recipient = ''
+      
+      chatUsersRecords.data.forEach((user) => {
+        if (!(user.username === currentUser)){
+          recipient = user.username
+        }
+      })
+
+      if (!recipient){
+        console.error("error fetching recpient")
+        return
+      }
+
+      // create meeting inv record by creating structured meeting record
       await client.models.MeetingInvitation.create({
-        invitationId: invitationId,
         chatId: currChatId,
         createdBy: currentUser,
         title: meetingForm.title,
@@ -210,13 +262,13 @@ function Chat() {
         location: meetingForm.location || '',
         status: 'pending',
         createdAt: new Date().toISOString(),
+        invited: recipient
       });
 
-      // Create meeting invitation message
+      // create meeting inv msg (sends special msg to chat)
       const meetingMessage = {
         type: 'meeting_invite',
         meeting: {
-          invitationId: invitationId,
           title: meetingForm.title,
           description: meetingForm.description,
           dateTime: new Date(meetingForm.dateTime).toISOString(),
@@ -225,10 +277,10 @@ function Chat() {
           status: 'pending'
         }
       };
-
+      
+      // and then this uses existing msging system with JSON
       await createMessage(JSON.stringify(meetingMessage), 'meeting_invite');
 
-      // Reset form and close modal
       setMeetingForm({
         title: '',
         description: '',
@@ -238,56 +290,27 @@ function Chat() {
       setShowMeetingModal(false);
 
     } catch (error) {
-      console.error("Error creating meeting invitation:", error);
-      alert("Error creating meeting invitation. Please try again.");
+      console.error(error);
+      alert("create meeting error");
     }
   };
 
-  const handleMeetingResponse = async (invitationId, response) => {
+
+  const meetingResponse = async (invitationId, response) => {
     try {
       if (!currentUser || !currChatId) {
-        console.error("Missing user or chat information");
+        console.error(error);
         return;
       }
 
-      // Record the response
-      await client.models.MeetingResponse.create({
-        invitationId: invitationId,
-        chatId: currChatId,
-        username: currentUser,
-        response: response,
-        respondedAt: new Date().toISOString(),
-      });
-
-      // Update the original meeting invitation status
+      // update the original meeting invitation status
       await client.models.MeetingInvitation.update({
-        invitationId: invitationId,
+        id: invitationId,
         status: response,
         updatedAt: new Date().toISOString(),
       });
 
-      // If accepted, add to calendar
-      if (response === 'accepted') {
-        const meetingInvite = await client.models.MeetingInvitation.get({ 
-          invitationId: invitationId 
-        });
-
-        if (meetingInvite.data) {
-          await client.models.Calendar.create({
-            username: currentUser,
-            invitationId: invitationId,
-            chatId: currChatId,
-            title: meetingInvite.data.title,
-            description: meetingInvite.data.description || '',
-            dateTime: meetingInvite.data.dateTime,
-            location: meetingInvite.data.location || '',
-            createdBy: meetingInvite.data.createdBy,
-            addedAt: new Date().toISOString(),
-          });
-        }
-      }
-
-      // Send response message
+      // finally, now we're gonna send the response message
       const responseMessage = {
         type: 'meeting_response',
         meeting: {
@@ -301,59 +324,58 @@ function Chat() {
       await createMessage(JSON.stringify(responseMessage), 'meeting_response');
 
     } catch (error) {
-      console.error("Error handling meeting response:", error);
-      alert("Error responding to meeting. Please try again.");
+      console.error(error);
+      alert("Meeting Response Error");
     }
   };
 
   const renderMessage = (msg) => {
     try {
-      // Try to parse as JSON for special message types
       const content = JSON.parse(msg.content);
       
       if (content.type === 'meeting_invite') {
         const meeting = content.meeting;
-        const isCurrentUserSender = msg.sendername === currentUser;
+        const currentUserSender = msg.sendername === currentUser;
         
         return (
-          <div className={`${styles.meetingInvite} ${isCurrentUserSender ? styles.sentInvite : styles.receivedInvite}`}>
+          <div className={`${styles.meetingInvite} ${currentUserSender ? styles.sentInvite : styles.receivedInvite}`}>
             <div className={styles.meetingHeader}>
-              <span className={styles.meetingIcon}>📅</span>
+              <span className={styles.meetingIcon}></span>
               <span className={styles.meetingTitle}>{meeting.title}</span>
             </div>
             <div className={styles.meetingDetails}>
               <div className={styles.meetingDateTime}>
-                📅 {new Date(meeting.dateTime).toLocaleString()}
+                calendar: {new Date(meeting.dateTime).toLocaleString()}
               </div>
               {meeting.location && (
-                <div className={styles.meetingLocation}>📍 {meeting.location}</div>
+                <div className={styles.meetingLocation}>location: {meeting.location}</div>
               )}
               {meeting.description && (
                 <div className={styles.meetingDescription}>{meeting.description}</div>
               )}
               <div className={styles.meetingCreator}>
-                Created by: {meeting.createdBy}
+                created by: {prefferedDictionary[ meeting.createdBy] || meeting.createdBy}
               </div>
             </div>
-            {!isCurrentUserSender && meeting.status === 'pending' && (
+            {!currentUserSender && meeting.status === 'pending' && (
               <div className={styles.meetingActions}>
                 <button 
                   className={styles.acceptButton}
-                  onClick={() => handleMeetingResponse(meeting.invitationId, 'accepted')}
+                  onClick={() => meetingResponse(meeting.id, 'accepted')}
                 >
-                  ✅ Accept
+                  Accept
                 </button>
                 <button 
                   className={styles.declineButton}
-                  onClick={() => handleMeetingResponse(meeting.invitationId, 'declined')}
+                  onClick={() => meetingResponse(meeting.id, 'declined')}
                 >
-                  ❌ Decline
+                 Decline
                 </button>
               </div>
             )}
             {meeting.status !== 'pending' && (
               <div className={`${styles.meetingStatus} ${styles[meeting.status]}`}>
-                {meeting.status === 'accepted' ? '✅ Accepted' : '❌ Declined'}
+                {meeting.status === 'accepted' ? 'accept' : 'declined'}
               </div>
             )}
           </div>
@@ -365,20 +387,19 @@ function Chat() {
         return (
           <div className={styles.meetingResponse}>
             <span className={styles.responseIcon}>
-              {response.response === 'accepted' ? '✅' : '❌'}
+              {response.response === 'accepted' ? 'accept' : 'decline'}
             </span>
             <span className={styles.responseText}>
-              {response.respondedBy} {response.response} the meeting invitation
+              {prefferedDictionary[ response.respondedBy]|| response.respondedBy} {response.response} the meeting invitation
             </span>
           </div>
         );
       }
       
     } catch (e) {
-      // Not a JSON message, render as regular text
+      
     }
-    
-    // Regular text message
+
     return msg.content;
   };
 
@@ -402,7 +423,7 @@ function Chat() {
     return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
   };
 
-  // Get minimum datetime for meeting (current time)
+  // get minimum datetime for meeting (current time)
   const getMinDateTime = () => {
     const now = new Date();
     const year = now.getFullYear();
@@ -420,13 +441,6 @@ function Chat() {
       <div className={styles.sidebar}>
         <div className={styles.sidebarHeader}>
           <h2 className={styles.title}>Chats</h2>
-          <input
-              type="text"
-              value={chatName}
-              onChange={e => setChatName(e.target.value)}
-              placeholder="Enter New Chat Name"
-              className={styles.input}
-            />
           <div className={styles.newChatInput}>
             <input
               type="text"
@@ -508,7 +522,7 @@ function Chat() {
                 title="Create meeting"
                 disabled={loading}
               >
-                📅
+                +
               </button>
               <input
                 value={messageInput}

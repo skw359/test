@@ -12,8 +12,12 @@ export default function Calendar() {
   const [selectedDay, setSelectedDay] = useState(null);
   const [showPopup, setShowPopup] = useState(false);
   const [currentUser, setCurrentUser] = useState('');
+  
+  // The final, processed list of meetings to display. Format: { 'YYYY-M-D': [meetingObj, ...] }
   const [meetings, setMeetings] = useState({});
   const [loading, setLoading] = useState(true);
+
+  // Raw data from subscriptions
   const [createdInvites, setCreatedInvites] = useState([]);
   const [invitedInvites, setInvitedInvites] = useState([]);
   
@@ -28,233 +32,131 @@ export default function Calendar() {
   
   const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   
-  const firstDay = new Date(year, month, 1).getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  
-  const calendarDays = [];
-  
   // Get current user
   useEffect(() => {
     const fetchCurrentUser = async () => {
       try {
+        setLoading(true);
         const user = await getCurrentUser();
         setCurrentUser(user.username || user.signInDetails?.loginId || '');
       } catch (err) {
         console.log(err);
+        setLoading(false);
       }
     };
     fetchCurrentUser();
   }, []);
 
-  // Get all the invitations created by the user
+  // Subscription 1: Get all meeting invitations CREATED BY the current user.
   useEffect(() => {
-    if (!currentUser) {
-      return;
-    }
+    if (!currentUser) return;
     
     const sub = client.models.MeetingInvitation.observeQuery({
       filter: { createdBy: { eq: currentUser } },
     }).subscribe({
       next: ({ items }) => {
-        console.log("created invites", items);
-        const sortedInvites = [...items].sort((a, b) =>
-          new Date(a.dateTime) - new Date(b.dateTime)
-        );
-        setCreatedInvites(sortedInvites);
+        setCreatedInvites(items);
       },
-      error: (error) => {
-        console.error(error);
-      }
+      error: (error) => console.error("Subscription error for created meetings:", error)
     });
 
     return () => sub.unsubscribe();
   }, [currentUser]);
 
-  // Get all the invitations that the user was invited to
+  // Subscription 2: Get all meeting invitations where the user was INVITED.
   useEffect(() => {
-    if (!currentUser) {
-      return;
-    }
+    if (!currentUser) return;
 
     const sub = client.models.MeetingInvitation.observeQuery({
       filter: { invited: { eq: currentUser } }
     }).subscribe({
       next: ({ items }) => {
-        console.log("invited invites", items);
-        const sortedInvites = [...items].sort((a, b) =>
-          new Date(a.dateTime) - new Date(b.dateTime)
-        );
-        setInvitedInvites(sortedInvites);
+        // We only care about the ones that have been accepted.
+        const accepted = items.filter(invite => invite.status === 'accepted');
+        setInvitedInvites(accepted);
       },
-      error: (error) => {
-        console.error(error);
-      }
+      error: (error) => console.error("Subscription error for invited meetings:", error)
     });
 
     return () => sub.unsubscribe();
   }, [currentUser]);
 
-  // Combine and organize meetings by date whenever invites change
+  // ✨ CORE LOGIC: Process raw subscription data into the format the calendar needs.
+  // This runs whenever the user's created or accepted invitations change.
   useEffect(() => {
-    if (!currentUser) return;
+    const allMeetings = {};
+    const processedIds = new Set(); // Prevents duplicates
 
-    const organizeMeetingsByDate = () => {
-      const allMeetings = {};
+    const addMeeting = (meeting) => {
+      if (processedIds.has(meeting.id)) return;
+
+      const meetingDate = new Date(meeting.dateTime);
+      const dateKey = `${meetingDate.getFullYear()}-${meetingDate.getMonth() + 1}-${meetingDate.getDate()}`;
       
-      // Combine both created and invited meetings
-      const allInvites = [...createdInvites, ...invitedInvites];
+      if (!allMeetings[dateKey]) {
+        allMeetings[dateKey] = [];
+      }
       
-      // Filter out duplicates (in case user invited themselves)
-      const uniqueInvites = allInvites.filter((invite, index, self) => 
-        index === self.findIndex(i => i.id === invite.id)
-      );
-      
-      // Only show accepted meetings and meetings created by the user
-      const relevantMeetings = uniqueInvites.filter(invite => 
-        invite.status === 'accepted' || invite.createdBy === currentUser
-      );
-      
-      // Group meetings by date
-      relevantMeetings.forEach(meeting => {
-        const meetingDate = new Date(meeting.dateTime);
-        const dateKey = `${meetingDate.getFullYear()}-${meetingDate.getMonth() + 1}-${meetingDate.getDate()}`;
-        
-        if (!allMeetings[dateKey]) {
-          allMeetings[dateKey] = [];
-        }
-        
-        allMeetings[dateKey].push({
-          id: meeting.id,
-          title: meeting.title,
-          description: meeting.description,
-          dateTime: meeting.dateTime,
-          location: meeting.location,
-          status: meeting.status,
-          createdBy: meeting.createdBy,
-          invited: meeting.invited,
-          chatId: meeting.chatId,
-          isCreator: meeting.createdBy === currentUser,
-          isInvited: meeting.invited === currentUser
-        });
-      });
-      
-      setMeetings(allMeetings);
-      setLoading(false);
+      allMeetings[dateKey].push(meeting);
+      processedIds.add(meeting.id);
     };
 
-    // Only organize meetings if we have data
-    if (createdInvites.length > 0 || invitedInvites.length > 0) {
-      organizeMeetingsByDate();
-    } else if (currentUser) {
-      // If user is loaded but no invites, still set loading to false
-      setLoading(false);
+    // Add all meetings created by the user (they are an implicit attendee)
+    createdInvites.forEach(addMeeting);
+    
+    // Add all meetings the user was invited to AND accepted
+    invitedInvites.forEach(addMeeting);
+
+    // Sort meetings within each day by time
+    for (const dateKey in allMeetings) {
+      allMeetings[dateKey].sort((a, b) => new Date(a.dateTime) - new Date(b.dateTime));
     }
+    
+    setMeetings(allMeetings);
+    if(currentUser) setLoading(false);
+
   }, [createdInvites, invitedInvites, currentUser]);
 
-  // Build calendar days
-  for (let i = 0; i < firstDay; i++) {
-    calendarDays.push(null);
-  }
+
+  // --- Helper and Render Functions (mostly unchanged) ---
+
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const calendarDays = Array.from({ length: firstDay }).concat(Array.from({ length: daysInMonth }, (_, i) => i + 1));
   
-  for (let day = 1; day <= daysInMonth; day++) {
-    calendarDays.push(day);
-  }
-  
-  const goToTheLastMonth = () => {
-    setCurrentDate(new Date(year, month - 1, 1));
-  };
-  
-  const goToTheNextMonth = () => {
-    setCurrentDate(new Date(year, month + 1, 1));
-  };
-  
-  const isToday = (day) => {
-    return day === today.getDate() && 
-           month === today.getMonth() && 
-           year === today.getFullYear();
-  };
-  
+  const goToTheLastMonth = () => setCurrentDate(new Date(year, month - 1, 1));
+  const goToTheNextMonth = () => setCurrentDate(new Date(year, month + 1, 1));
+  const isToday = (day) => day === today.getDate() && month === today.getMonth() && year === today.getFullYear();
   const hasMeetings = (day) => {
     const dateKey = `${year}-${month + 1}-${day}`;
-    return meetings[dateKey] && meetings[dateKey].length > 0;
+    return meetings[dateKey]?.length > 0;
+  };
+  const getMeetingsForDay = (day) => {
+    const dateKey = `${year}-${month + 1}-${day}`;
+    return meetings[dateKey] || [];
   };
   
   const handleDayClick = (day) => {
     setSelectedDay(day);
     setShowPopup(true);
   };
-  
   const closePopup = () => {
     setShowPopup(false);
     setSelectedDay(null);
   };
   
-  const getMeetingsForDay = (day) => {
-    const dateKey = `${year}-${month + 1}-${day}`;
-    return meetings[dateKey] || [];
-  };
-
   const formatMeetingTime = (dateTimeString) => {
-    const date = new Date(dateTimeString);
-    return date.toLocaleTimeString('en-US', {
+    return new Date(dateTimeString).toLocaleTimeString('en-US', {
       hour: 'numeric',
       minute: '2-digit',
       hour12: true
     });
-  };
-
-  const formatMeetingDateTime = (dateTimeString) => {
-    const date = new Date(dateTimeString);
-    return date.toLocaleString('en-US', {
-      weekday: 'long',
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true
-    });
-  };
-
-  const getStatusIcon = (meeting) => {
-    if (meeting.isCreator) {
-      return '👤'; // Creator
-    }
-    
-    switch (meeting.status) {
-      case 'accepted':
-        return '✅';
-      case 'pending':
-        return '⏳';
-      case 'declined':
-        return '❌';
-      case 'cancelled':
-        return '🚫';
-      default:
-        return '📅';
-    }
-  };
-
-  const getStatusText = (meeting) => {
-    if (meeting.isCreator) {
-      return 'Created by you';
-    }
-    
-    switch (meeting.status) {
-      case 'accepted':
-        return 'Accepted';
-      case 'pending':
-        return 'Pending';
-      case 'declined':
-        return 'Declined';
-      case 'cancelled':
-        return 'Cancelled';
-      default:
-        return 'Unknown';
-    }
   };
 
   if (loading) {
     return (
       <div className={styles.container}>
-        <div className={styles.loadingContainer}>Loading calendar...</div>
+        <div className={styles.loading}>Loading Calendar...</div>
       </div>
     );
   }
@@ -262,37 +164,16 @@ export default function Calendar() {
   return (
     <div className={styles.container}>
       <div className={styles.calendarWrapper}>
-        {/* Header */}
         <div className={styles.header}>
-          <button 
-            className={styles.navButton}
-            onClick={goToTheLastMonth}
-          >
-            &#8249;
-          </button>
-          
-          <h1 className={styles.monthTitle}>
-            {monthNames[month]} {year}
-          </h1>
-          
-          <button 
-            className={styles.navButton}
-            onClick={goToTheNextMonth}
-          >
-            &#8250;
-          </button>
+          <button className={styles.navButton} onClick={goToTheLastMonth}>‹</button>
+          <h1 className={styles.monthTitle}>{monthNames[month]} {year}</h1>
+          <button className={styles.navButton} onClick={goToTheNextMonth}>›</button>
         </div>
         
-        {/* Days of week header */}
         <div className={styles.daysHeader}>
-          {daysOfWeek.map(day => (
-            <div key={day} className={styles.dayHeader}>
-              {day}
-            </div>
-          ))}
+          {daysOfWeek.map(day => <div key={day} className={styles.dayHeader}>{day}</div>)}
         </div>
         
-        {/* Calendar grid */}
         <div className={styles.calendarGrid}>
           {calendarDays.map((day, index) => (
             <div key={index}>
@@ -304,10 +185,8 @@ export default function Calendar() {
                   {day}
                   {hasMeetings(day) && (
                     <div className={styles.eventIndicator}>
+                      <span className={styles.eventCount}>{getMeetingsForDay(day).length}</span>
                       <div className={styles.eventDot}></div>
-                      <span className={styles.eventCount}>
-                        {getMeetingsForDay(day).length}
-                      </span>
                     </div>
                   )}
                 </button>
@@ -316,67 +195,50 @@ export default function Calendar() {
           ))}
         </div>
         
-        {/* Meeting popup */}
         {showPopup && (
           <div className={styles.popupOverlay} onClick={closePopup}>
             <div className={styles.popup} onClick={(e) => e.stopPropagation()}>
               <div className={styles.popupHeader}>
-                <h3 className={styles.popupTitle}>
-                  {monthNames[month]} {selectedDay}, {year}
-                </h3>
-                <button className={styles.closeButton} onClick={closePopup}>
-                  ×
-                </button>
+                <h3 className={styles.popupTitle}>{monthNames[month]} {selectedDay}, {year}</h3>
+                <button className={styles.closeButton} onClick={closePopup}>×</button>
               </div>
               <div className={styles.popupContent}>
                 {getMeetingsForDay(selectedDay).length > 0 ? (
                   <div className={styles.meetingsList}>
                     <h4 className={styles.meetingsTitle}>
-                      Meetings for this day ({getMeetingsForDay(selectedDay).length}):
+                      Scheduled Meetings:
                     </h4>
-                    {getMeetingsForDay(selectedDay).map((meeting, index) => (
-                      <div key={meeting.id || index} className={styles.meetingItem}>
+                    {getMeetingsForDay(selectedDay).map((meeting) => (
+                      <div key={meeting.id} className={styles.meetingItem}>
                         <div className={styles.meetingItemHeader}>
-                          <span className={styles.meetingIcon}>
-                            {getStatusIcon(meeting)}
-                          </span>
+                          <span className={styles.meetingIcon}>📅</span>
                           <span className={styles.meetingItemTitle}>{meeting.title}</span>
                           <span className={styles.meetingTime}>
                             {formatMeetingTime(meeting.dateTime)}
                           </span>
                         </div>
                         {meeting.location && (
-                          <div className={styles.meetingLocation}>
-                            📍 {meeting.location}
-                          </div>
+                          <div className={styles.meetingLocation}>📍 {meeting.location}</div>
                         )}
                         {meeting.description && (
-                          <div className={styles.meetingDescription}>
-                            {meeting.description}
-                          </div>
+                          <div className={styles.meetingDescription}>{meeting.description}</div>
                         )}
                         <div className={styles.meetingMeta}>
                           <span className={styles.meetingCreator}>
-                            {meeting.isCreator ? 'Created by you' : `Created by: ${meeting.createdBy}`}
+                            By: {meeting.createdBy === currentUser ? 'You' : meeting.createdBy}
                           </span>
-                          <span className={`${styles.meetingStatus} ${styles['status' + meeting.status]}`}>
-                            {getStatusText(meeting)}
+                          <span className={`${styles.meetingStatus} ${styles.statusAccepted}`}>
+                            ✅ {meeting.status}
                           </span>
                         </div>
-                        {meeting.isInvited && !meeting.isCreator && (
-                          <div className={styles.invitedIndicator}>
-                            📧 You were invited to this meeting
-                          </div>
-                        )}
                       </div>
                     ))}
                   </div>
                 ) : (
                   <div className={styles.noMeetings}>
+                    <div className={styles.noMeetingsIcon}>🗓️</div>
                     <p>No meetings scheduled for this day.</p>
-                    <p className={styles.noMeetingsHint}>
-                      Create or accept meeting invites in your chats to see them here!
-                    </p>
+                    <p className={styles.noMeetingsHint}>Accept invites in chat to add them here.</p>
                   </div>
                 )}
               </div>
@@ -387,4 +249,3 @@ export default function Calendar() {
     </div>
   );
 }
-

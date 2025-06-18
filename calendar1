@@ -355,3 +355,407 @@ export default function Calendar() {
     </div>
   );
 }
+
+.container {
+  min-height: 100vh;
+  background-color: transparent;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: Arial, sans-serif;
+}
+
+.calendarWrapper {
+  max-width: 600px;
+  width: 100%;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.navButton {
+  padding: 12px;
+  background-color: transparent;
+  border: none;
+  color: #ffffff;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background-color 0.2s;
+  font-size: 24px;
+}
+
+.navButton:hover {
+  background-color: #374151;
+}
+
+.monthTitle {
+  font-size: 32px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.daysHeader {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.dayHeader {
+  padding: 16px;
+  text-align: center;
+  color: #9CA3AF;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.calendarGrid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+}
+
+.dayButton {
+  width: 70px;
+  height: 70px;
+  background-color: transparent;
+  border: none;
+  color: #E5E7EB;
+  cursor: pointer;
+  border-radius: 12px;
+  font-size: 18px;
+  position: relative;
+}
+
+.dayButton:hover {
+  background-color: #374151;
+}
+
+.dayButton.today {
+  background-color: #667eea;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.dayButton.today:hover {
+  background-color: #667eea;
+}
+
+.dayButton.hasMeetings {
+  background-color: #10B981;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.dayButton.hasMeetings:hover {
+  background-color: #059669;
+}
+
+/* Event indicators */
+.eventIndicator {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.eventDot {
+  width: 6px;
+  height: 6px;
+  background-color: #10B981;
+  border-radius: 50%;
+}
+
+.dayButton.today .eventDot,
+.dayButton.hasMeetings .eventDot {
+  background-color: #ffffff;
+}
+
+.eventCount {
+  font-size: 10px;
+  font-weight: 700;
+  color: #ffffff;
+  min-width: 12px;
+  text-align: center;
+}
+
+/* Loading state */
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 400px;
+  font-size: 18px;
+  color: #ffffff;
+  background-color: rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+}
+
+/* Popup Styles */
+.popupOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.popup {
+  background-color: #1F2937;
+  border-radius: 16px;
+  padding: 0;
+  max-width: 500px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+}
+
+.popupHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  border-bottom: 1px solid #374151;
+}
+
+.popupTitle {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0;
+  color: #ffffff;
+}
+
+.closeButton {
+  background: none;
+  border: none;
+  color: #9CA3AF;
+  font-size: 24px;
+  cursor: pointer;
+  padding: 4px;
+  line-height: 1;
+  transition: color 0.2s;
+}
+
+.closeButton:hover {
+  color: #ffffff;
+}
+
+.popupContent {
+  padding: 20px;
+}
+
+/* Meetings list */
+.meetingsList {
+  margin: 0;
+}
+
+.meetingsTitle {
+  font-size: 16px;
+  font-weight: 500;
+  margin: 0 0 16px 0;
+  color: #E5E7EB;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.meetingItem {
+  background-color: #374151;
+  border: 1px solid #4B5563;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 12px;
+  transition: all 0.2s ease;
+}
+
+.meetingItem:hover {
+  border-color: #10B981;
+  background-color: #4B5563;
+}
+
+.meetingItemHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.meetingIcon {
+  font-size: 16px;
+}
+
+.meetingItemTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: #ffffff;
+  flex-grow: 1;
+}
+
+.meetingTime {
+  background-color: #667eea;
+  color: #ffffff;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.meetingLocation {
+  color: #D1D5DB;
+  font-size: 14px;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.meetingDescription {
+  color: #9CA3AF;
+  font-size: 14px;
+  line-height: 1.4;
+  margin-bottom: 8px;
+  font-style: italic;
+}
+
+.meetingMeta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #4B5563;
+}
+
+.meetingCreator {
+  font-size: 12px;
+  color: #9CA3AF;
+}
+
+.meetingStatus {
+  padding: 3px 8px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.statusAccepted {
+  background-color: #10B981;
+  color: #ffffff;
+}
+
+/* No meetings state */
+.noMeetings {
+  color: #9CA3AF;
+  text-align: center;
+  padding: 30px 20px;
+}
+
+.noMeetingsIcon {
+  font-size: 48px;
+  margin-bottom: 16px;
+  opacity: 0.5;
+}
+
+.noMeetings p {
+  margin: 8px 0;
+  font-size: 16px;
+}
+
+.noMeetingsHint {
+  font-size: 14px;
+  color: #6B7280;
+}
+
+.eventsTitle {
+  font-size: 16px;
+  font-weight: 500;
+  margin: 0 0 12px 0;
+  color: #E5E7EB;
+}
+
+.eventsList {
+  margin: 0;
+}
+
+.eventItem {
+  padding: 8px 0;
+  color: #D1D5DB;
+  border-bottom: 1px solid #374151;
+  font-size: 14px;
+}
+
+.eventItem:last-child {
+  border-bottom: none;
+}
+
+.noEvents {
+  color: #9CA3AF;
+  text-align: center;
+  padding: 20px 0;
+}
+
+@media (max-width: 768px) {
+  .container {
+    padding: 10px;
+  }
+  
+  .calendarWrapper {
+    max-width: 100%;
+  }
+  
+  .header {
+    margin-bottom: 16px;
+  }
+  
+  .monthTitle {
+    font-size: 24px;
+  }
+  
+  .navButton {
+    padding: 8px;
+    font-size: 20px;
+  }
+  
+  .dayButton {
+    width: 50px;
+    height: 50px;
+    font-size: 14px;
+  }
+  
+  .popup {
+    width: 95%;
+    max-width: none;
+  }
+  
+  .popupContent {
+    padding: 16px;
+  }
+  
+  .meetingItem {
+    padding: 12px;
+  }
+  
+  .meetingItemHeader {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  
+  .meetingTime {
+    align-self: flex-end;
+  }
+}

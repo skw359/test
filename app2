@@ -5,6 +5,7 @@ import '@aws-amplify/ui-react/styles.css';
 import { Amplify } from "aws-amplify";
 import Layout from '../../components/shared/layout';
 import ProfileButton from '../../components/shared/ProfileButton';
+import Sidebar from '../../components/shared/Sidebar'; // Import your sidebar
 import styles from '../styles/_app.module.css';
 import React, { useState, useEffect} from 'react';
 import UserProfileCheck from '../../components/shared/UserProfileCheck'
@@ -17,12 +18,15 @@ export default function App({ Component, pageProps }) {
       <Authenticator>
         {({ signOut, user }) => (
             <> 
-              {/* Only show navbar when user is authenticated */}
+              {/* Only show navbar and sidebar when user is authenticated */}
               {user && (
-                <nav className={styles.navbar}>
-                  <div className={styles.navTitle}>Velocity</div>
-                  <ProfileButton signOut={signOut} />
-                </nav>
+                <>
+                  <nav className={styles.navbar}>
+                    <div className={styles.navTitle}>Velocity</div>
+                    <ProfileButton signOut={signOut} />
+                  </nav>
+                  <Sidebar />
+                </>
               )}
               
               <UserProfileCheck>

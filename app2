@@ -1,44 +1,141 @@
-import { useState, useEffect } from "react";
-import styles from '../styles/_app.module.css';
+import "../styles/globals.css";
 import outputs from "../../amplify_outputs.json";
 import { Authenticator } from '@aws-amplify/ui-react';
 import '@aws-amplify/ui-react/styles.css';
 import { Amplify } from "aws-amplify";
 import Layout from '../../components/shared/layout';
 import ProfileButton from '../../components/shared/ProfileButton';
+import styles from '../styles/_app.module.css';
+import React, { useState, useEffect} from 'react';
+import UserProfileCheck from '../../components/shared/UserProfileCheck'
 
 Amplify.configure(outputs);
 
-export default function App({ Component, pageProps }) {
+export default function App({ Component, pageProps }) { // profile component fetch currUser : preffered name, age,  != enter this information 
   return (
     <Layout>
       <Authenticator>
-        {({ signOut, user }) => (
-          <>
-            {/* Top Navigation Bar */}
-            <nav className={styles.navbar}>
-              {/* Logo/Brand */}
-              <div className={styles.brand}>
-                Velocity
-              </div>
-
-              {/* Profile Dropdown */}
-              <ProfileButton signOut={signOut} />
-            </nav>
-
-            {/* Main Content with top padding to account for fixed nav */}
-            <div className={styles.mainContent}>
-              <Component {...pageProps} />
-            </div>
-          </>
-        )}
+        {({ signOut }) => (
+            <> 
+              <nav className={styles.navbar}>
+                <div className={styles.navTitle}>Velocity</div>
+                <ProfileButton signOut={signOut} />
+              </nav>
+              <UserProfileCheck>
+                <div className={styles.pageContent}>
+                      <Component {...pageProps} /> 
+                </div>
+                
+              </UserProfileCheck>
+              
+            </>
+          )}
+        
       </Authenticator>
     </Layout>
   );
 }
 
-_app.module.css:
-/* Navigation Bar Styles */
+.dropdownWrapper {
+  position: relative;
+}
+
+.profileButton {
+  width: 40px;
+  height: 40px;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  background: transparent;
+  border: none;
+}
+.profileButton:hover {
+  background-color: #5a67d8;
+}
+
+.dropdownMenu {
+  position: absolute;
+  top: 50px;
+  right: 0;
+  background-color: #1a1d29;
+  border-radius: 8px;
+  width: 200px;
+  z-index: 1000;
+}
+
+.userInfoSection {
+  padding: 16px;
+  border-bottom: 1px solid #2d3748;
+  background-color: #252936;
+}
+
+.userInfo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background-color: #667eea;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: white;
+}
+
+.username {
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.userSubtitle {
+  color: #718096;
+  font-size: 12px;
+}
+
+.menuOptions {
+  padding: 8px 0;
+}
+
+.menuButton {
+  width: 100%;
+  padding: 12px 16px;
+  background-color: transparent;
+  border: none;
+  color: #fff;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.menuButton:hover {
+  background-color: #2d3748;
+}
+
+.menuDivider {
+  height: 1px;
+  background-color: #2d3748;
+  margin: 8px 0;
+}
+
+.signOutButton {
+  color: #f56565;
+}
+
 .navbar {
   position: fixed;
   top: 0;
@@ -55,254 +152,25 @@ _app.module.css:
   z-index: 50;
 }
 
-/* Brand/Logo Styles */
-.brand {
+.navTitle {
   color: #fff;
   font-size: 18px;
   font-weight: 600;
+  margin-left: 80px;
 }
 
-/* Main Content Container */
-.mainContent {
+.pageContent {
   padding-top: 60px;
 }
 
-ProfileButton.js:
-import { useState, useEffect, useRef } from "react";
-import { getCurrentUser } from 'aws-amplify/auth';
-import styles from './ProfileButton.module.css';
-
-function ProfileButton({ signOut }) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [currentUser, setCurrentUser] = useState('');
-  const dropdownRef = useRef(null);
-
-  // Get current authenticated user
-  useEffect(() => {
-    const fetchCurrentUser = async () => {
-      try {
-        const user = await getCurrentUser();
-        setCurrentUser(user.username || user.signInDetails?.loginId || '');
-      } catch (err) {
-        console.log(err);
-      }
-    };
-
-    fetchCurrentUser();
-  }, []);
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        setIsOpen(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  const getInitials = (name) => {
-    if (!name) return '?';
-    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
-  };
-
-  const handleViewProfile = () => {
-    setIsOpen(false);
-    // Add profile page navigation here if you have one
-    // router.push('/profile');
-  };
-
-  const handleSettings = () => {
-    setIsOpen(false);
-    // Add settings page navigation here if you have one
-    // router.push('/settings');
-  };
-
-  const handleSignOut = () => {
-    setIsOpen(false);
-    signOut();
-  };
-
-  return (
-    <div className={styles.container} ref={dropdownRef}>
-      {/* Profile Button */}
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className={styles.profileButton}
-      >
-        {getInitials(currentUser)}
-      </button>
-
-      {/* Dropdown Menu */}
-      {isOpen && (
-        <div className={styles.dropdown}>
-          {/* User Info Section */}
-          <div className={styles.userInfo}>
-            <div className={styles.userInfoContent}>
-              <div className={styles.userAvatar}>
-                {getInitials(currentUser)}
-              </div>
-              <div>
-                <div className={styles.userName}>
-                  {currentUser || 'Loading...'}
-                </div>
-                <div className={styles.userStatus}>
-                  Online
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Menu Options */}
-          <div className={styles.menuOptions}>
-            <button
-              onClick={handleViewProfile}
-              className={styles.menuItem}
-            >
-              👤 View Profile
-            </button>
-
-            <button
-              onClick={handleSettings}
-              className={styles.menuItem}
-            >
-              ⚙️ Settings
-            </button>
-
-            <div className={styles.divider} />
-
-            <button
-              onClick={handleSignOut}
-              className={`${styles.menuItem} ${styles.signOutItem}`}
-            >
-              🚪 Sign Out
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+.pageTransition {
+  transition: opacity 0.25s ease-in-out;
 }
 
-export default ProfileButton;
-
-ProfileButton.module.css:
-/* Profile Button Container */
-.container {
-  position: relative;
+.fadeIn {
+  opacity: 1;
 }
 
-/* Profile Button */
-.profileButton {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background-color: #667eea;
-  border: none;
-  color: white;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s ease;
-}
-
-.profileButton:hover {
-  background-color: #5a67d8;
-  transform: scale(1.05);
-}
-
-/* Dropdown Menu */
-.dropdown {
-  position: absolute;
-  top: 50px;
-  right: 0;
-  background-color: #1a1d29;
-  border: 1px solid #2d3748;
-  border-radius: 8px;
-  min-width: 200px;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
-  z-index: 1000;
-  overflow: hidden;
-}
-
-/* User Info Section */
-.userInfo {
-  padding: 16px;
-  border-bottom: 1px solid #2d3748;
-  background-color: #252936;
-}
-
-.userInfoContent {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.userAvatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background-color: #667eea;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  font-weight: 600;
-  color: white;
-}
-
-.userName {
-  color: #fff;
-  font-size: 14px;
-  font-weight: 600;
-  margin-bottom: 2px;
-}
-
-.userStatus {
-  color: #718096;
-  font-size: 12px;
-}
-
-/* Menu Options */
-.menuOptions {
-  padding: 8px 0;
-}
-
-.menuItem {
-  width: 100%;
-  padding: 12px 16px;
-  background-color: transparent;
-  border: none;
-  color: #fff;
-  font-size: 14px;
-  text-align: left;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  transition: background-color 0.2s ease;
-}
-
-.menuItem:hover {
-  background-color: #2d3748;
-}
-
-.signOutItem {
-  color: #f56565;
-}
-
-.signOutItem:hover {
-  background-color: #2d3748;
-}
-
-/* Divider */
-.divider {
-  height: 1px;
-  background-color: #2d3748;
-  margin: 8px 0;
+.fadeOut {
+  opacity: 0;
 }

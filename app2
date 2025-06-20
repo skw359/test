@@ -5,21 +5,57 @@ import '@aws-amplify/ui-react/styles.css';
 import { Amplify } from "aws-amplify";
 import Layout from '../../components/shared/layout';
 import ProfileButton from '../../components/shared/ProfileButton';
-import Sidebar from '../../components/shared/Sidebar'; // Import your sidebar
+import Sidebar from '../../components/shared/Sidebar';
 import styles from '../styles/_app.module.css';
 import React, { useState, useEffect} from 'react';
-import UserProfileCheck from '../../components/shared/UserProfileCheck'
+import UserProfileCheck from '../../components/shared/UserProfileCheck';
 
 Amplify.configure(outputs);
 
 export default function App({ Component, pageProps }) {
+  const [isAuthUIVisible, setIsAuthUIVisible] = useState(true);
+
+  useEffect(() => {
+    // Function to check if Amplify's auth UI is visible
+    const checkAuthUI = () => {
+      // Look for Amplify's authentication UI elements
+      const authUI = document.querySelector('[data-amplify-authenticator]') ||
+                    document.querySelector('[data-amplify-sign-in]') ||
+                    document.querySelector('[data-amplify-sign-up]') ||
+                    document.querySelector('.amplify-authenticator') ||
+                    document.querySelector('.amplify-signin') ||
+                    document.querySelector('.amplify-signup');
+      
+      setIsAuthUIVisible(!!authUI);
+    };
+
+    // Check immediately
+    checkAuthUI();
+
+    // Set up a MutationObserver to watch for DOM changes
+    const observer = new MutationObserver(checkAuthUI);
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true
+    });
+
+    // Also check periodically as a fallback
+    const interval = setInterval(checkAuthUI, 500);
+
+    return () => {
+      observer.disconnect();
+      clearInterval(interval);
+    };
+  }, []);
+
   return (
     <Layout>
       <Authenticator>
-        {({ signOut, user, authStatus }) => (
+        {({ signOut, user }) => (
             <> 
-              {/* Only show navbar and sidebar when user is fully authenticated */}
-              {authStatus === 'authenticated' && (
+              {/* Only show navbar and sidebar when user exists AND auth UI is not visible */}
+              {user && !isAuthUIVisible && (
                 <>
                   <nav className={styles.navbar}>
                     <div className={styles.navTitle}>Velocity</div>

@@ -1,13 +1,9 @@
-import { useAuthenticator } from '@aws-amplify/ui-react';
 import React from "react";
 import Image from "next/image"; 
 import { useState } from "react";
 import { useRouter } from 'next/router';
 
 export default function Sidebar() {
-    // Get the user authentication state
-    const { user } = useAuthenticator((context) => [context.user]);
-    
     const [activeIcon, setActiveIcon] = useState('home');
     const router = useRouter();
     
@@ -22,11 +18,6 @@ export default function Sidebar() {
         setActiveIcon(id);
         router.push(href);
     };
-
-    // Don't render the sidebar if user is not authenticated
-    if (!user) {
-        return null;
-    }
 
     return (
         <>

@@ -2,6 +2,82 @@ import React from "react";
 import Image from "next/image"; 
 import { useState, useEffect } from "react";
 import { useRouter } from 'next/router';
+import styles from '../../styles/sidebarwrapper.module.css';
+
+export default function Sidebar() {
+    const router = useRouter();
+    
+    // Function to determine active icon based on current route
+    const getActiveIconFromRoute = (pathname) => {
+        // Handle exact matches first
+        if (pathname === '/') return 'home';
+        
+        // Handle route patterns
+        if (pathname.startsWith('/chat')) return 'chat';
+        if (pathname.startsWith('/calendar')) return 'calendar';
+        if (pathname.startsWith('/map')) return 'map';
+        
+        // Default fallback
+        return 'home';
+    };
+
+    // Initialize with the correct active icon based on current route
+    const [activeIcon, setActiveIcon] = useState(() => getActiveIconFromRoute(router.pathname));
+    
+    const navItems = [
+        { id: 'home', href: "/", icon: '🏠', label: 'Home' },
+        { id: 'chat', href: "/chat", icon: '💬', label: 'Chat' },
+        { id: 'calendar', href: "/calendar", icon: '📅', label: 'Calendar' },
+        { id: 'map', href: "/map", icon: '🗺️', label: 'Map' }
+    ];
+
+    // Update active icon when route changes
+    useEffect(() => {
+        const handleRouteChangeStart = (url) => {
+            // Update immediately when route change starts
+            const activeId = getActiveIconFromRoute(url);
+            setActiveIcon(activeId);
+        };
+
+        // Listen for route changes - use routeChangeStart for immediate update
+        router.events.on('routeChangeStart', handleRouteChangeStart);
+
+        return () => {
+            router.events.off('routeChangeStart', handleRouteChangeStart);
+        };
+    }, [router.events]);
+
+    const handleIconClick = (id, href) => {
+        setActiveIcon(id);
+        router.push(href);
+    };
+
+    return (
+        <>
+            {/* the nav side bar */}
+            <div className={styles.sidebarContainer}>
+                {/* the menu icon three lines */}
+                <div className={styles.menuIcon}>
+                    <div className={styles.menuIconLine}></div>
+                    <div className={styles.menuIconLine}></div>
+                    <div className={styles.menuIconLine}></div>
+                </div>
+                
+                {/* actual nav icons */}
+                {navItems.map((item) => (
+                    <div 
+                        key={item.id}
+                        onClick={() => handleIconClick(item.id, item.href)}
+                        className={`${styles.sidebarIcon} ${activeIcon === item.id ? styles.active : ''}`}
+                        title={item.label}
+                    >
+                        {item.icon}
+                    </div>
+                ))}
+            </div>
+        </>
+    );
+}
 
 export default function Sidebar() {
     const router = useRouter();

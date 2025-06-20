@@ -1,11 +1,11 @@
 import React from "react";
 import Image from "next/image"; 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from 'next/router';
 
 export default function Sidebar() {
-    const [activeIcon, setActiveIcon] = useState('home');
     const router = useRouter();
+    const [activeIcon, setActiveIcon] = useState('home');
     
     const navItems = [
         { id: 'home', href: "/", icon: '🏠', label: 'Home' },
@@ -13,6 +13,39 @@ export default function Sidebar() {
         { id: 'calendar', href: "/calendar", icon: '📅', label: 'Calendar' },
         { id: 'map', href: "/map", icon: '🗺️', label: 'Map' }
     ];
+
+    // Function to determine active icon based on current route
+    const getActiveIconFromRoute = (pathname) => {
+        // Handle exact matches first
+        if (pathname === '/') return 'home';
+        
+        // Handle route patterns
+        if (pathname.startsWith('/chat')) return 'chat';
+        if (pathname.startsWith('/calendar')) return 'calendar';
+        if (pathname.startsWith('/map')) return 'map';
+        
+        // Default fallback
+        return 'home';
+    };
+
+    // Update active icon when route changes
+    useEffect(() => {
+        const handleRouteChange = (url) => {
+            const activeId = getActiveIconFromRoute(url);
+            setActiveIcon(activeId);
+        };
+
+        // Set initial active icon based on current route
+        const currentActiveId = getActiveIconFromRoute(router.pathname);
+        setActiveIcon(currentActiveId);
+
+        // Listen for route changes
+        router.events.on('routeChangeComplete', handleRouteChange);
+
+        return () => {
+            router.events.off('routeChangeComplete', handleRouteChange);
+        };
+    }, [router.pathname, router.events]);
 
     const handleIconClick = (id, href) => {
         setActiveIcon(id);
@@ -68,7 +101,7 @@ export default function Sidebar() {
                         }}
                         onMouseEnter={e => {
                             if (activeIcon !== item.id) {
-                                e.currentTarget.style.backgroundColor = 'transparent';
+                                e.currentTarget.style.backgroundColor = 'rgba(45, 55, 72, 0.5)';
                             }
                         }}
                         onMouseLeave={e => {

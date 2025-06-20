@@ -5,6 +5,9 @@ import { useState } from "react";
 import { useRouter } from 'next/router';
 
 export default function Sidebar() {
+    // Get the user authentication state
+    const { user } = useAuthenticator((context) => [context.user]);
+    
     const [activeIcon, setActiveIcon] = useState('home');
     const router = useRouter();
     
@@ -20,10 +23,13 @@ export default function Sidebar() {
         router.push(href);
     };
 
+    // Don't render the sidebar if user is not authenticated
+    if (!user) {
+        return null;
+    }
+
     return (
         <>
-         
-            
             {/* the nav side bar */}
             <div style={{
                 position: 'fixed',

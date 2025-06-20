@@ -84,7 +84,7 @@ function Chat() {
 
                     return { ...chatUser, chatName: chatnamed || 'Unnamed Chat' };
                   } catch (error) {
-                    console.warn(`Failed to fetch chat for chatId: ${chatUser.chatId}`, error);
+                    console.warn(`${chatUser.chatId}`, error);
                     return { ...chatUser, chatName: 'Unknown' };
                   }
                   }));
@@ -94,7 +94,7 @@ function Chat() {
                 enrich(items)    
             },
             error: (error) => {
-                console.warn('Subscription error:', error);
+                console.warn(error);
                 setLoading(false);
             }
         });
@@ -122,7 +122,7 @@ function Chat() {
       return () => sub.unsubscribe();
   }, [currChatId]);  
 
-  // Scroll to bottom when messages update
+  // scroll to bottom when messages update
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -130,7 +130,7 @@ function Chat() {
   const createChat = async () => {
       try{
           if (!currentUser || !recipientInput){
-              console.error("Missing user or recipient")
+              console.error(error)
               return;
           }
           
@@ -179,7 +179,7 @@ function Chat() {
         }
        
     }catch(error){
-        console.error("Error creating message:", error);
+        console.error(error);
     }
   }
 
@@ -187,7 +187,6 @@ function Chat() {
   const createMeetingInvitation = async () => {
     try {
       if (!currentUser || !currChatId || !meetingForm.title || !meetingForm.dateTime) {
-        alert("Title and Date & Time are required.");
         return;
       }
 
@@ -196,11 +195,11 @@ function Chat() {
       });
       const recipient = chatUsersRecords.data.find(user => user.username !== currentUser)?.username;
       if (!recipient) {
-        console.error("Error fetching recipient");
+        console.error(error);
         return;
       }
 
-      // 1. Create the meeting record in the database
+      // create the meeting record in the database
       const newMeetingInvite = await client.models.MeetingInvitation.create({
         chatId: currChatId,
         createdBy: currentUser,
@@ -213,11 +212,11 @@ function Chat() {
         invited: recipient
       });
 
-      // 2. Create the chat message with the database ID included
+      // create the chat message with the database ID included
       const meetingMessage = {
         type: 'meeting_invite',
         meeting: {
-          id: newMeetingInvite.data.id, // The critical link to the database record
+          id: newMeetingInvite.data.id,
           title: meetingForm.title,
           description: meetingForm.description,
           dateTime: new Date(meetingForm.dateTime).toISOString(),
@@ -232,8 +231,8 @@ function Chat() {
       setShowMeetingModal(false);
 
     } catch (error) {
-      console.error("Error creating meeting invitation:", error);
-      alert("Failed to create meeting invitation.");
+      console.error(error);
+      alert("invitation didnt create what the heck");
     }
   };
 
@@ -241,14 +240,14 @@ function Chat() {
     try {
       if (!currentUser || !invitationId) return;
 
-      // 1. Update the database record. This is the source of truth for the calendar.
+      // update the database record, this is the source of truth for the calendar
       await client.models.MeetingInvitation.update({
-        id: invitationId, // Use the ID passed from the button click
+        id: invitationId,
         status: response,
         updatedAt: new Date().toISOString(),
       });
 
-      // 2. Send a *new* confirmation message to the chat.
+      // send confirmation in chat
       const responseMessage = {
         type: 'meeting_response',
         meeting: {
@@ -260,8 +259,7 @@ function Chat() {
       await createMessage(JSON.stringify(responseMessage), 'meeting_response');
 
     } catch (error) {
-      console.error("Error responding to meeting:", error);
-      alert("Failed to respond to meeting.");
+      console.error(error);
     }
   };
 
@@ -275,15 +273,15 @@ function Chat() {
         return (
           <div className={`${styles.meetingInvite} ${!isRecipient ? styles.sentInvite : styles.receivedInvite}`}>
             <div className={styles.meetingHeader}>
-              <span className={styles.meetingIcon}>📅</span>
+              <span className={styles.meetingIcon}>EVENT:</span>
               <span className={styles.meetingTitle}>{meeting.title}</span>
             </div>
             <div className={styles.meetingDetails}>
               <div className={styles.meetingDateTime}>
-                🗓️ {new Date(meeting.dateTime).toLocaleString()}
+               {new Date(meeting.dateTime).toLocaleString()}
               </div>
               {meeting.location && (
-                <div className={styles.meetingLocation}>📍 {meeting.location}</div>
+                <div className={styles.meetingLocation}>Location: {meeting.location}</div>
               )}
               {meeting.description && (
                 <div className={styles.meetingDescription}>{meeting.description}</div>
@@ -292,7 +290,7 @@ function Chat() {
                 Invited by: {prefferedDictionary[meeting.createdBy] || meeting.createdBy}
               </div>
             </div>
-            {/* The original invitation always shows these buttons for the recipient */}
+            {/* the original invitation always shows these buttons for the recipient */}
             {isRecipient && (
               <div className={styles.meetingActions}>
                 <button 
@@ -319,7 +317,7 @@ function Chat() {
         return (
           <div className={styles.meetingResponse}>
             <span className={styles.responseIcon}>
-              {isAccepted ? '✅' : '❌'}
+              {isAccepted ? 'Accepted' : 'X'}
             </span>
             <span className={styles.responseText}>
               {prefferedDictionary[response.respondedBy] || response.respondedBy} 
@@ -330,7 +328,6 @@ function Chat() {
       }
       
     } catch (e) {
-      // It's a plain text message
     }
     return msg.content;
   };
@@ -432,7 +429,7 @@ function Chat() {
                 title="Create meeting"
                 disabled={loading}
               >
-                📅
+                +
               </button>
               <input
                 value={messageInput}
@@ -463,7 +460,7 @@ function Chat() {
         )}
       </div>
 
-      {/* Meeting Modal */}
+      {/* meeting Modal */}
       {showMeetingModal && (
         <div className={styles.modalOverlay} onClick={() => setShowMeetingModal(false)}>
           <div className={styles.modal} onClick={(e) => e.stopPropagation()}>

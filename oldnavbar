@@ -5,15 +5,7 @@ import { useRouter } from 'next/router';
 
 export default function Sidebar() {
     const router = useRouter();
-    const [activeIcon, setActiveIcon] = useState('home');
     
-    const navItems = [
-        { id: 'home', href: "/", icon: '🏠', label: 'Home' },
-        { id: 'chat', href: "/chat", icon: '💬', label: 'Chat' },
-        { id: 'calendar', href: "/calendar", icon: '📅', label: 'Calendar' },
-        { id: 'map', href: "/map", icon: '🗺️', label: 'Map' }
-    ];
-
     // Function to determine active icon based on current route
     const getActiveIconFromRoute = (pathname) => {
         // Handle exact matches first
@@ -28,24 +20,31 @@ export default function Sidebar() {
         return 'home';
     };
 
+    // Initialize with the correct active icon based on current route
+    const [activeIcon, setActiveIcon] = useState(() => getActiveIconFromRoute(router.pathname));
+    
+    const navItems = [
+        { id: 'home', href: "/", icon: '🏠', label: 'Home' },
+        { id: 'chat', href: "/chat", icon: '💬', label: 'Chat' },
+        { id: 'calendar', href: "/calendar", icon: '📅', label: 'Calendar' },
+        { id: 'map', href: "/map", icon: '🗺️', label: 'Map' }
+    ];
+
     // Update active icon when route changes
     useEffect(() => {
-        const handleRouteChange = (url) => {
+        const handleRouteChangeStart = (url) => {
+            // Update immediately when route change starts
             const activeId = getActiveIconFromRoute(url);
             setActiveIcon(activeId);
         };
 
-        // Set initial active icon based on current route
-        const currentActiveId = getActiveIconFromRoute(router.pathname);
-        setActiveIcon(currentActiveId);
-
-        // Listen for route changes
-        router.events.on('routeChangeComplete', handleRouteChange);
+        // Listen for route changes - use routeChangeStart for immediate update
+        router.events.on('routeChangeStart', handleRouteChangeStart);
 
         return () => {
-            router.events.off('routeChangeComplete', handleRouteChange);
+            router.events.off('routeChangeStart', handleRouteChangeStart);
         };
-    }, [router.pathname, router.events]);
+    }, [router.events]);
 
     const handleIconClick = (id, href) => {
         setActiveIcon(id);

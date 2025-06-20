@@ -16,10 +16,10 @@ export default function App({ Component, pageProps }) {
   return (
     <Layout>
       <Authenticator>
-        {({ signOut, user }) => (
+        {({ signOut, user, authStatus }) => (
             <> 
-              {/* Only show navbar and sidebar when user is authenticated */}
-              {user && (
+              {/* Only show navbar and sidebar when user is fully authenticated */}
+              {authStatus === 'authenticated' && (
                 <>
                   <nav className={styles.navbar}>
                     <div className={styles.navTitle}>Velocity</div>
